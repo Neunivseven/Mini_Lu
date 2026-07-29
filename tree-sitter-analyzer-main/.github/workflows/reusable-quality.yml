@@ -1,0 +1,95 @@
+# Reusable Quality Workflow
+# Standardized Linting, Type Checking, and Security Scanning
+
+name: Reusable Quality Workflow
+
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Run Ruff
+        run: |
+          uv sync --all-extras
+          uv run ruff check .
+          echo "✅ Ruff linting passed" >> $GITHUB_STEP_SUMMARY
+
+  type-check:
+    name: Type Check (MyPy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Run MyPy
+        run: |
+          uv sync --all-extras
+          uv run mypy tree_sitter_analyzer/
+          echo "✅ MyPy type checking passed" >> $GITHUB_STEP_SUMMARY
+
+  security:
+    name: Security Scan (Bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+      - name: Run Bandit
+        env:
+          PYTHONIOENCODING: utf-8
+          LC_ALL: C.UTF-8
+          LANG: C.UTF-8
+        run: |
+          set -euo pipefail
+          uv sync --all-extras
+
+          set +e
+          uv run --with bandit bandit -c pyproject.toml -r tree_sitter_analyzer/ -f json -o bandit-results.json
+          BANDIT_STATUS=$?
+          set -e
+
+          # Parse and display results if file exists
+          if [ -f bandit-results.json ]; then
+            ISSUES=$(python3 -c "import json; data=json.load(open('bandit-results.json', encoding='utf-8')); print(len(data['results']))" 2>/dev/null) || ISSUES=0
+
+            if [ "$ISSUES" -gt 0 ] 2>/dev/null; then
+              echo "⚠️ Bandit found $ISSUES security issue(s)" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "✅ Bandit security scan passed (0 issues)" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "❌ Bandit results file was not created" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          exit "$BANDIT_STATUS"
+
+  loose-assertions:
+    name: Weak Assertion Ratchet
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Check for new weak assertions
+        run: |
+          bash scripts/check_loose_assertions.sh origin/${{ github.base_ref }}
+        continue-on-error: false

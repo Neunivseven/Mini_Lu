@@ -1,0 +1,478 @@
+#!/usr/bin/env python3
+"""
+CodeGraph Sitemap MCP Tool — Hierarchical project code map.
+
+Generates a browsable, hierarchical map of the project's code surface:
+  directory → file → class → function (with signatures)
+
+Uses the pre-indexed AST cache for instant lookups. Falls back to
+on-demand parsing when the cache is empty.
+
+Modes:
+  - full:     Complete hierarchical map (directory → file → symbols)
+  - api:      Public API surface only (non-private functions/classes)
+  - module:   Per-module complexity metrics (functions, classes, LOC)
+  - flat:     Flat symbol listing grouped by kind
+
+CodeGraph parity: equivalent to CodeGraph's code-map / sitemap view.
+"""
+
+from __future__ import annotations
+
+import json
+from collections import defaultdict
+from typing import Any
+
+from ...utils import setup_logger
+from ..utils.format_helper import apply_toon_format_to_response
+from ._response_builder import build_response
+from ._validators import _validate_positive_int, invalid_enum_error
+from .base_tool import BaseMCPTool
+
+logger = setup_logger(__name__)
+
+#: Default cap on the number of symbol entries emitted by the flat/api modes.
+#: F3 (overview-output-budget): a large repo can otherwise emit a wall of text
+#: (~86k) that is expensive and unreadable for an agent. Callers can raise this
+#: via the ``max_symbols`` argument when they genuinely need the full listing.
+DEFAULT_MAX_SYMBOLS = 300
+
+
+def _path_parts(file_path: str) -> list[str]:
+    return [part for part in file_path.replace("\\", "/").split("/") if part]
+
+
+class CodeGraphSitemapTool(BaseMCPTool):
+    """MCP Tool for hierarchical project code map (CodeGraph parity)."""
+
+    def __init__(self, project_root: str | None = None) -> None:
+        self._cache: Any = None
+        super().__init__(project_root)
+
+    def _on_project_root_changed(self, project_root: str | None) -> None:
+        self._cache = None
+
+    def _get_cache(self) -> Any:
+        if self._cache is None:
+            if not self.project_root:
+                raise ValueError("Project root not set. Call set_project_path first.")
+            from ...ast_cache import ASTCache
+
+            self._cache = ASTCache(self.project_root)
+        return self._cache
+
+    def get_tool_definition(self) -> dict[str, Any]:
+        return {
+            "name": "codegraph_sitemap",
+            "description": (
+                "Hierarchical project code map (CodeGraph parity). "
+                "Generates a browsable directory→file→class→function structure "
+                "with signatures, complexity metrics, and public API surface. "
+                "Modes: full (complete map), api (public API only), "
+                "module (per-module metrics), flat (flat symbol list). "
+                "Requires ast_cache index (run ast_cache mode=index). "
+                "No other tool provides hierarchical code-map navigation."
+            ),
+            "inputSchema": self.get_tool_schema(),
+            "annotations": {
+                "readOnlyHint": True,
+                "destructiveHint": False,
+                "idempotentHint": True,
+                "openWorldHint": False,
+            },
+        }
+
+    def get_tool_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["full", "api", "module", "flat"],
+                    "description": (
+                        "full=complete hierarchical map, "
+                        "api=public API surface only, "
+                        "module=per-module metrics, "
+                        "flat=flat symbol listing"
+                    ),
+                    "default": "full",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "Filter by language (e.g. 'python', 'javascript')",
+                },
+                "directory": {
+                    "type": "string",
+                    "description": "Filter to a subdirectory (relative path)",
+                },
+                "max_files": {
+                    "type": "integer",
+                    "description": "Max files to include (default: 200)",
+                    "default": 200,
+                },
+                "max_symbols": {
+                    "type": "integer",
+                    "description": (
+                        "Max symbol entries to emit in api/flat modes "
+                        f"(default: {DEFAULT_MAX_SYMBOLS}). When the cap is hit, "
+                        "the response sets truncated=true; raise this to see more."
+                    ),
+                    "default": DEFAULT_MAX_SYMBOLS,
+                },
+                "output_format": {
+                    "type": "string",
+                    "enum": ["json", "toon"],
+                    "description": "Output format: 'toon' (default, token-efficient) or 'json'",
+                    "default": "toon",
+                },
+            },
+            "additionalProperties": False,
+        }
+
+    def validate_arguments(self, arguments: dict[str, Any]) -> bool:
+        mode = arguments.get("mode", "full")
+        valid_modes = ["api", "flat", "full", "module"]
+        if mode not in valid_modes:
+            raise invalid_enum_error("mode", mode, valid_modes)
+        # Guard the budget params: a non-positive limit would silently apply
+        # Python negative-index slicing (max_symbols=-1 drops the last entry) or
+        # empty everything (max_symbols=0), neither of which is a meaningful cap.
+        # P1-B (RFC-0015): use shared validator that handles float coercion and
+        # bool rejection, ensuring sitemap and uml_tool share the same logic.
+        for key in ("max_files", "max_symbols"):
+            _validate_positive_int(arguments, key)
+        return True
+
+    async def execute(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        # Coerce numeric params to int before validate_arguments so string values
+        # from the MCP boundary ("200") pass _validate_positive_int.
+        coerced: dict[str, Any] = dict(arguments)
+        for _key in ("max_files", "max_symbols"):
+            if (
+                _key in coerced
+                and coerced[_key] is not None
+                and not isinstance(coerced[_key], bool)
+            ):
+                try:
+                    coerced[_key] = int(coerced[_key])
+                except (ValueError, TypeError):
+                    pass  # let validate_arguments produce the error
+        arguments = coerced
+        self.validate_arguments(arguments)
+
+        mode = arguments.get("mode", "full")
+        language = arguments.get("language")
+        directory = arguments.get("directory")
+        max_files = int(arguments.get("max_files", 200))
+        max_symbols = arguments.get("max_symbols", DEFAULT_MAX_SYMBOLS)
+        output_format = arguments.get("output_format", "toon")
+
+        cache = self._get_cache()
+
+        # Probe one row beyond max_files so we can tell whether the file LIMIT
+        # itself truncated the set (Codex P2 #337): otherwise a large repo with
+        # more files than max_files would drop every file past the limit in ALL
+        # modes while reporting truncated=false, so a caller could treat an
+        # incomplete sitemap as complete with no signal to raise max_files.
+        raw_files = self._load_indexed_files(cache, language, directory, max_files + 1)
+        files_truncated = len(raw_files) > max_files
+        if files_truncated:
+            raw_files = raw_files[:max_files]
+
+        # F3: api/flat modes can emit unbounded symbol lists. The hierarchical
+        # full/module modes are not symbol-capped, but ALL modes are now
+        # file-capped, so any mode can report truncated=true via files_truncated.
+        symbols_truncated = False
+        if mode == "full":
+            payload = self._build_full_map(raw_files)
+        elif mode == "api":
+            payload, symbols_truncated = self._build_api_surface(raw_files, max_symbols)
+        elif mode == "module":
+            payload = self._build_module_metrics(raw_files)
+        else:
+            payload, symbols_truncated = self._build_flat(raw_files, max_symbols)
+
+        truncated = symbols_truncated or files_truncated
+        total_symbols = sum(f["symbol_count"] for f in raw_files)
+
+        extra: dict[str, Any] = {}
+        if language:
+            extra["language_filter"] = language
+
+        # Only emit truncation_note when something was actually truncated — an
+        # empty note on complete responses is schema noise (reviewer P3). Name
+        # the cause(s) so the caller knows which limit to raise.
+        if truncated:
+            causes: list[str] = []
+            if symbols_truncated:
+                causes.append(f"symbol list capped at max_symbols={max_symbols}")
+            if files_truncated:
+                causes.append(f"file list capped at max_files={max_files}")
+            extra["truncation_note"] = (
+                "Output truncated (" + "; ".join(causes) + "). Raise the relevant "
+                "limit, or narrow scope with the directory/language filters."
+            )
+
+        result = build_response(
+            verdict="INFO" if raw_files else "NOT_FOUND",
+            mode=mode,
+            file_count=len(raw_files),
+            total_symbols=total_symbols,
+            truncated=truncated,
+            **payload,
+            **extra,
+        )
+
+        return apply_toon_format_to_response(result, output_format)
+
+    def _load_indexed_files(
+        self,
+        cache: Any,
+        language: str | None,
+        directory: str | None,
+        max_files: int,
+    ) -> list[dict[str, Any]]:
+        conn = cache.get_conn()
+        if language and directory:
+            like_dir = directory.rstrip("/") + "/%"
+            rows = conn.execute(
+                "SELECT file_path, language, symbols_json, structure_json "
+                "FROM ast_index WHERE language = ? AND file_path LIKE ? "
+                "ORDER BY file_path LIMIT ?",
+                (language, like_dir, max_files),
+            ).fetchall()
+        elif language:
+            rows = conn.execute(
+                "SELECT file_path, language, symbols_json, structure_json "
+                "FROM ast_index WHERE language = ? "
+                "ORDER BY file_path LIMIT ?",
+                (language, max_files),
+            ).fetchall()
+        elif directory:
+            like_dir = directory.rstrip("/") + "/%"
+            rows = conn.execute(
+                "SELECT file_path, language, symbols_json, structure_json "
+                "FROM ast_index WHERE file_path LIKE ? "
+                "ORDER BY file_path LIMIT ?",
+                (like_dir, max_files),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT file_path, language, symbols_json, structure_json "
+                "FROM ast_index ORDER BY file_path LIMIT ?",
+                (max_files,),
+            ).fetchall()
+
+        files: list[dict[str, Any]] = []
+        for row in rows:
+            symbols = json.loads(row["symbols_json"])
+            structure = json.loads(row["structure_json"])
+            syms = symbols.get("symbols", [])
+            files.append(
+                {
+                    "file": row["file_path"],
+                    "language": row["language"],
+                    "symbols": syms,
+                    "structure": structure,
+                    "symbol_count": len(syms),
+                    "functions": [
+                        s for s in syms if s.get("kind") in ("function", "method")
+                    ],
+                    "classes": [s for s in syms if s.get("kind") == "class"],
+                    "imports": [s for s in syms if s.get("kind") == "import"],
+                }
+            )
+        return files
+
+    def _build_full_map(self, files: list[dict[str, Any]]) -> dict[str, Any]:
+        tree: dict[str, Any] = {}
+        for f in files:
+            parts = _path_parts(f["file"])
+            node = tree
+            for part in parts[:-1]:
+                node = node.setdefault(part, {})
+            filename = parts[-1]
+            file_entry: dict[str, Any] = {
+                "_language": f["language"],
+                "_symbols": len(f["symbols"]),
+            }
+            for cls in f["classes"]:
+                class_entry: dict[str, Any] = {
+                    "_kind": "class",
+                    "_line": cls.get("line", 0),
+                }
+                class_name = cls.get("name", "")
+                members = self._class_members(class_name, f["functions"])
+                if members:
+                    for m in members:
+                        member_entry = {
+                            "_kind": "method",
+                            "_line": m.get("line", 0),
+                            "_params": m.get("params", ""),
+                        }
+                        class_entry[m.get("name", "")] = member_entry
+                file_entry[class_name] = class_entry
+
+            for func in f["functions"]:
+                parent = func.get("class")
+                if parent:
+                    continue
+                func_name = func.get("name", "")
+                file_entry[func_name] = {
+                    "_kind": "function",
+                    "_line": func.get("line", 0),
+                    "_params": func.get("params", ""),
+                }
+
+            node[filename] = file_entry
+
+        return {"sitemap": self._clean_tree(tree)}
+
+    def _class_members(
+        self, class_name: str, functions: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        return [f for f in functions if f.get("class") == class_name]
+
+    def _clean_tree(self, tree: dict[str, Any]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, val in tree.items():
+            if isinstance(val, dict) and "_kind" not in val and "_language" not in val:
+                cleaned = self._clean_tree(val)
+                if cleaned:
+                    out[key] = cleaned
+            else:
+                out[key] = val
+        return out
+
+    def _build_api_surface(
+        self, files: list[dict[str, Any]], max_symbols: int = DEFAULT_MAX_SYMBOLS
+    ) -> tuple[dict[str, Any], bool]:
+        api: list[dict[str, Any]] = []
+        for f in files:
+            for func in f["functions"]:
+                name = func.get("name", "")
+                if name.startswith("_"):
+                    continue
+                parent = func.get("class")
+                if parent and parent.startswith("_"):
+                    continue
+                entry: dict[str, Any] = {
+                    "name": name,
+                    "kind": "method" if parent else "function",
+                    "file": f["file"],
+                    "line": func.get("line", 0),
+                    "params": func.get("params", ""),
+                    "language": f["language"],
+                }
+                if parent:
+                    entry["class"] = parent
+                api.append(entry)
+
+            for cls in f["classes"]:
+                cls_name = cls.get("name", "")
+                if cls_name.startswith("_"):
+                    continue
+                api.append(
+                    {
+                        "name": cls_name,
+                        "kind": "class",
+                        "file": f["file"],
+                        "line": cls.get("line", 0),
+                        "language": f["language"],
+                    }
+                )
+
+        # Scalar counts reflect the true totals; only the emitted list is capped.
+        payload = {
+            "public_api": api[:max_symbols],
+            "public_function_count": sum(
+                1 for a in api if a["kind"] in ("function", "method")
+            ),
+            "public_class_count": sum(1 for a in api if a["kind"] == "class"),
+        }
+        return payload, len(api) > max_symbols
+
+    def _build_module_metrics(self, files: list[dict[str, Any]]) -> dict[str, Any]:
+        by_dir: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for f in files:
+            dir_path = "/".join(_path_parts(f["file"])[:-1]) or "."
+            by_dir[dir_path].append(f)
+
+        modules: list[dict[str, Any]] = []
+        for dir_path, dir_files in sorted(by_dir.items()):
+            total_funcs = sum(len(f["functions"]) for f in dir_files)
+            total_classes = sum(len(f["classes"]) for f in dir_files)
+            total_imports = sum(len(f["imports"]) for f in dir_files)
+            langs: dict[str, int] = defaultdict(int)
+            for f in dir_files:
+                langs[f["language"]] += 1
+
+            file_entries: list[dict[str, Any]] = []
+            for f in dir_files:
+                file_entries.append(
+                    {
+                        "file": f["file"],
+                        "functions": len(f["functions"]),
+                        "classes": len(f["classes"]),
+                        "imports": len(f["imports"]),
+                        "language": f["language"],
+                    }
+                )
+
+            modules.append(
+                {
+                    "directory": dir_path,
+                    "file_count": len(dir_files),
+                    "function_count": total_funcs,
+                    "class_count": total_classes,
+                    "import_count": total_imports,
+                    "languages": dict(langs),
+                    "files": file_entries,
+                }
+            )
+
+        return {"modules": modules}
+
+    def _build_flat(
+        self, files: list[dict[str, Any]], max_symbols: int = DEFAULT_MAX_SYMBOLS
+    ) -> tuple[dict[str, Any], bool]:
+        by_kind: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for f in files:
+            for sym in f["symbols"]:
+                kind = sym.get("kind", "unknown")
+                entry: dict[str, Any] = {
+                    "name": sym.get("name", sym.get("text", "")),
+                    "kind": kind,
+                    "file": f["file"],
+                    "line": sym.get("line", 0),
+                    "language": f["language"],
+                }
+                if kind in ("function", "method") and sym.get("params"):
+                    entry["params"] = sym["params"]
+                if kind in ("function", "method") and sym.get("class"):
+                    entry["class"] = sym["class"]
+                by_kind[kind].append(entry)
+
+        # counts report the true (untruncated) totals per kind.
+        counts = {k: len(v) for k, v in by_kind.items()}
+
+        # Cap the total number of emitted entries across all kinds, keeping the
+        # per-kind grouping. Kinds are iterated in stable insertion order so the
+        # truncation is deterministic.
+        total = sum(len(v) for v in by_kind.values())
+        truncated = total > max_symbols
+        if truncated:
+            remaining = max_symbols
+            capped: dict[str, list[dict[str, Any]]] = {}
+            for kind, entries in by_kind.items():
+                if remaining <= 0:
+                    break
+                take = entries[:remaining]
+                if take:
+                    capped[kind] = take
+                    remaining -= len(take)
+            emitted_by_kind = capped
+        else:
+            emitted_by_kind = dict(by_kind)
+
+        return {"symbols_by_kind": emitted_by_kind, "counts": counts}, truncated

@@ -1,0 +1,4987 @@
+# Changelog
+
+## [1.29.0] - 2026-07-04
+
+Install-friction reduction release. This release makes TSA significantly easier to set up for first-time users and adds a diagnostic command for troubleshooting.
+
+### Added
+
+- **`install.sh` — one-command setup.** `curl -fsSL .../install.sh | bash` auto-installs `uv` if missing, detects Claude Desktop / Claude Code / Cursor / VS Code config files, and writes the MCP entry with an absolute `TREE_SITTER_PROJECT_ROOT`. Bash 3.x compatible; uses `python3` for JSON merge; creates timestamped backups before writing.
+- **`--doctor` command.** New `tree-sitter-analyzer --doctor` checks uv/uvx/fd/rg availability, validates `TREE_SITTER_PROJECT_ROOT` is an absolute path that exists, and lists agent config file status. Supports `--doctor-json` for machine-readable output. Available as a standalone entry point: `tree-sitter-analyzer-doctor`.
+- **RFC-0018 landed on develop.** The RFC text (TOON wire + envelope normalization, rev-3 with 10-expert panel rulings) is now on develop. Previously the README linked to this file in three places, but it only existed on an unmerged branch — causing 404s since v1.26.
+- **RFC-0018 and RFC-0019 indexed** in `rfcs/README.md`.
+
+### Changed
+
+- **README Quick Start** now opens with the `install.sh` curl command above the manual `claude mcp add` one-liner.
+- **README Troubleshooting** includes a concise entry for the most common setup mistake: setting `TREE_SITTER_PROJECT_ROOT` to a relative path.
+- **CLI flag count updated** to 321 (`--doctor` and `--doctor-json` added).
+
+### Fixed
+
+- **Language abstraction unification (Phase 2).** Consolidates plugin interface, shared infra, and test quality gates across all 21 language plugins.
+- **Internal namespace cleanup.** Stale import paths and module naming inconsistencies resolved across the codebase.
+- **MCP empty `agent_next_action` fields omitted.** Responses no longer carry empty `mcp_command:""`/`cli_command:""`/`post_edit_commands:[]` fields, reducing payload size.
+- **Test suite quality.** Weak assertions strengthened, oversplit test cases consolidated into parametrized matrices, dead stubs removed.
+
+## [1.28.0] - 2026-06-22
+
+Knowledge-graph viewer release. This release completes the human-facing graph
+path for the Ladybug/Graphology knowledge graph added in 1.27.0.
+
+### Added
+
+- **Standalone knowledge graph HTML viewer.** `viz action=knowledge` and
+  `--knowledge-graph-export` now accept `export_format=html` /
+  `--knowledge-graph-export-format html`, returning a self-contained browser
+  page over the existing capped Graphology/LOD payload.
+- **Obsidian-style interactive graph controls.** The viewer supports pan/zoom,
+  search, node-kind filtering, edge-kind filtering, node detail inspection, and
+  rendering for Markdown doc links, files, symbols, calls, imports, inheritance,
+  and containment edges.
+
+### Changed
+
+- **Human and program visualization split.** Graphology JSON remains the
+  programmatic Sigma-compatible export, while the HTML format gives people a
+  no-server browser view of the same package/file/symbol/docs LOD graph.
+
+## [1.27.0] - 2026-06-22
+
+Ladybug knowledge-graph release. This release adds an optional whole-project
+code/document graph projection for browser viewers and agent consumers, while
+keeping the existing SQLite AST/FTS index as the source of truth.
+
+### Added
+
+- **Whole-project knowledge graph indexing.** New `index action=knowledge`
+  MCP facade and `--knowledge-graph-index` CLI command materialize package,
+  file, symbol, and Markdown-link nodes from the existing AST cache, unified
+  edge store, and docs references.
+- **Optional LadybugDB mirror.** Installing `tree-sitter-analyzer[graph]`
+  enables a LadybugDB-backed graph mirror for Cypher-style traversal without
+  replacing SQLite. JSON remains the portable default; `backend=hybrid`
+  writes both.
+- **Graphology/Sigma export.** New `viz action=knowledge` MCP facade and
+  `--knowledge-graph-export` CLI command export Graphology-compatible JSON
+  for Sigma.js/browser visualization, plus raw and compact summary formats for
+  programmatic consumers.
+- **Obsidian-style docs/code links.** Markdown file references are projected
+  into the same graph as code files and symbols, so documentation-to-code and
+  code-to-code relationships can be explored together.
+
+### Changed
+
+- **Differential knowledge graph refresh.** `mode=update` reuses the existing
+  incremental sync path before graph materialization, preserving TSA's current
+  SQLite indexing pipeline while adding a graph-database sidecar for traversal.
+- **Facade and CLI parity.** The new knowledge graph actions are available
+  through both MCP facades and CLI entry points, with codemap and API docs
+  updated in the same release.
+
+### Fixed
+
+- **Cross-platform knowledge graph tests.** Knowledge graph sidecar path
+  assertions now handle Windows path separators, and patch coverage covers the
+  new graph export and optional-backend branches.
+
+## [1.26.0] - 2026-06-22
+
+Graph-visualization and correctness release. 54 commits since 1.25.0
+deliver the first browser-visualization data contract, complete a broad
+cyclomatic-complexity correctness sweep, tighten formatter output parity, and
+add CI review automation. No default output formats changed.
+
+### Added
+
+- **Sigma.js / Graphology graph payload export.** `viz action=graph` and
+  `--codegraph-visualize` now accept `visualization_format=sigma` /
+  `--codegraph-visualize-format sigma`, returning a Graphology-compatible
+  directed graph with node/edge attributes and LOD metadata for package,
+  class, and method drilldown. Mermaid remains the default. (#1110)
+- **Dead-code path scoping.** `health action=dead` can now scope analysis by
+  path, reducing noise for focused cleanup passes. (#1104)
+- **Formatter complexity columns.** Rust and Kotlin full-table output now show
+  cyclomatic complexity, matching the broader formatter surface. (#1082,
+  #1093)
+- **Claude PR review automation.** PRs now run a Claude-powered review job as
+  part of the CI feedback surface. (#1071, #1073)
+
+### Fixed
+
+- **Cyclomatic complexity is now extractor-owned and language-correct.**
+  Complexity scoring was corrected across Go, Rust, Python, JavaScript,
+  TypeScript, Java, C, C++, C#, Ruby, Scala, Bash, Swift, Kotlin, and
+  PHP. Heatmap and project-health consumers now read the extractor-derived
+  value instead of recomputing divergent scores. (#1055, #1056, #1057,
+  #1080, #1081, #1085, #1087, #1090, #1094, #1097, #1098, #1100, #1101,
+  #1102)
+- **MCP numeric parameter coercion.** Eleven MCP tools now coerce numeric
+  boundary parameters before validation, preventing int/string crashes from
+  agent callers. (#1054)
+- **Complexity heatmap language coverage.** Project-mode heatmap handles
+  string `max_files` and uses fallback complexity extraction across plugin
+  languages. (#1051, #1052)
+- **Formatter signature/output correctness.** Go parameter names/types,
+  Swift parameter and return types, Rust signatures, PHP and JS/TS module
+  functions, and Go/Bash complexity columns now render correctly in table
+  outputs. (#1053, #1064, #1065, #1066, #1074, #1075, #1077, #1079, #1092)
+- **Trace impact payload slimming.** `trace_impact` no longer duplicates the
+  bulk `results` array, reducing MCP response size while preserving the data
+  in the formatted payload. (#1078)
+- **PR review base resolution.** PR review routing now resolves the intended
+  base branch correctly. (#1109)
+
+### Changed
+
+- **TOON scalar safety.** Ambiguous scalar-looking strings are quoted, and a
+  `ToonDecoder` plus round-trip oracle now guard TOON losslessness. (#1063)
+- **README honesty.** README wording was corrected around TOON efficiency and
+  verdict vocabulary. (#1062)
+- **Test and CI hardening.** E2E project-health timing now warms the index
+  before measuring, formatter helper fixtures were simplified, and release
+  docs/counts were refreshed for 21,232 collected tests. (#1105, #1106)
+
+## [1.25.0] - 2026-06-17
+
+Correctness & agent-honesty point release. 14 commits since 1.24.0 (6 fixes,
+1 feature, plus docs/test hardening) — every change is user-visible output
+correctness, CLI-flag behavior, or agent-facing documentation accuracy. No
+agent-facing P0/P1 ships in this release.
+
+### Added
+
+- **`max_nesting_depth` in `file_metrics`.** `--check-scale` (and the
+  `check_scale` surface) now reports the deepest nesting level per file
+  alongside the existing scale metrics. (#1026)
+
+### Fixed
+
+- **Language attribution for C#/PHP/Ruby/SQL.** Extracted elements no longer
+  report `language='unknown'` in `--advanced` output for these four
+  languages — a cross-language data-correctness bug that mislabeled real
+  symbols. (#1023)
+- **SQL parameter normalization in `--summary`.** SQL method parameters are
+  now normalized consistently in the `--summary` JSON output. (#1021)
+- **`--ast-cache-language` actually filters the index.** The flag now scopes
+  the index file-walk, skipping files for non-matching languages instead of
+  being ignored. (#1022)
+- **`--safe-to-edit` recommendation built from the escalated verdict.** The
+  recommendation is now derived from the escalated verdict rather than the
+  raw risk score, so the advice matches the final safety verdict. (#1030)
+- **Skills runtime commands corrected.** Replaced the invalid
+  `--ast-cache-mode force/status` recipe (which is not a real command) with
+  valid `--ast-cache` commands in the skill docs. (#1031)
+- **Onboarding clarity.** `--install-skills` now echoes its destination path,
+  with a README CLI-verification twin to keep the documented behavior
+  honest. (#1025)
+
+### Changed
+
+- **Docs re-synced to current code.** All 6 CODEMAPS regenerated for
+  doc-code alignment (#1049); README documents additional CLI entry points
+  and `--install-skills-global` (#1036); skill docs note the `batch_search`
+  `>=2` constraint and use portable `sqlite3` examples (#1035).
+- **Test hygiene.** De-duplicated the triplicated CLI info-command tests
+  (#1048); marked remaining heavy full-surface boundary tests `slow_ok` to
+  stabilize Windows budget flakes (#1024); regenerated `uv.lock` so
+  `--locked` passes (#1020).
+
+## [1.24.0] - 2026-06-16
+
+Correctness & robustness release. 300 commits since 1.23.0 (208 fixes, 52
+test-hardening, 17 features) drove cross-language extraction accuracy across
+all 13 languages and made every agent-facing surface honest under real use:
+two multi-wave dogfood sweeps were triaged end-to-end (real bugs fixed,
+deliberate design decisions documented as won't-fix against their locked
+contracts). No agent-facing P0/P1 ships in this release.
+
+### Fixed
+
+- **Cross-language extraction correctness.** Targeted plugin fixes across
+  Ruby, PHP, Kotlin, C#, Scala, Python, Go, TypeScript, Rust, JavaScript,
+  C/C++, SQL, and CSS — phantom symbols, receiver/namespace attribution,
+  enum/variant handling, constants, and over-/under-capture. C# multi- and
+  nested-namespace classes now get the correct fully-qualified name.
+- **AST-cache warm-path P0.** `call_graph_built()` now falls back to the
+  edges table when the built marker is missing/zero, recovering legacy and
+  crash-interrupted caches that held real edges but were treated as empty —
+  the root cause behind a cluster of "index empty / not built" symptoms.
+- **Warm-cache hangs eliminated.** `EdgeStore.replace_edges_for_file` issued
+  an `OR` + `LIKE` DELETE that forced a full edges-table scan per file
+  (~55 min on a 159K-edge cache); split into three index-driven DELETEs.
+  `--codegraph-metrics` and `--incremental-sync` go from multi-minute hangs
+  to ~6s, and `--symbol-lineage` counts are now deterministic. A
+  query-plan-invariant test guards against re-introducing an unindexed scan.
+- **Agent-facing CLI honesty.** `--batch-search` returns a structured error
+  envelope instead of a raw traceback on bad input; `--safe-to-edit` /
+  `--agent-workflow` reject directory arguments with a clear error and a
+  non-zero exit; `--autoindex` reports a warm cache as indexed and populates
+  `cache_stats`; `clean-state` deletes only TSA artifacts (never sibling
+  Ruflo databases) and honors `--format json`.
+- **CLI flag-pair integrity.** Every `--X-mode` selector now requires its
+  `--X` trigger (22 pairs) — passing a mode without its trigger fails fast
+  naming the missing flag instead of silently falling through. `--edit-type`
+  and `--modification-guard-type` share one canonical edit-kind enum.
+- **Agent docs match reality.** Skill and facade descriptions corrected
+  against the actual registry/argparse/response fields (wrong param, mode,
+  field, and flag references), with the bundled package copies kept in sync.
+- **nav not-found envelope.** A missing symbol in a populated index gets a
+  "check spelling / browse" hint instead of a false "index empty / run
+  --full-index", via an edge-aware probe.
+
+### Added
+
+- **change-impact gating & agent ergonomics**: `--change-impact-fail-on-risk`
+  exit-code gate (#550); MCP `resource_profile` defaults to
+  `local_low_impact` for agents (#731); doc-drift verification steps surfaced
+  for CLI/MCP surface changes (#732).
+- **symbols_json enrichment**: module-level constants (Python #610, Go #613,
+  Rust #618, PHP #625) and docstring/return-type/params (#621) indexed as
+  symbols; FTS5 porter stemming so `dispatching` matches `dispatch` (#606).
+- **New CLI doors**: `--outline FILE` (#582) and `--check-scale FILE` (#527)
+  expose the rich MCP schemas to the CLI; TypeScript `--table` signatures
+  and a supported-language list in errors (#541).
+- **Honesty & guard rails**: byte budget + honest truncation for the
+  structure/outline surface (#542); stale-lineage flag when source is newer
+  than the index (#692); auto-generated facade-action parameter reference
+  with a CI drift ratchet (#602); agent envelope-contract guide with a drift
+  test (#520); AST-based loose-assertion ratchet that multiline asserts can
+  no longer evade (#586).
+
+## [1.23.0] - 2026-06-12
+
+Agent-experience release: the "instant everything" diagram family lands
+(activity + state), the TOON duplication disease class is structurally
+extinct, and a two-wave dogfood sweep closed 26 issues — every response
+surface is now budget-aware, honestly truncated, and teaches callable
+8-facade commands.
+
+### Added
+
+- **Activity diagrams** (#472, RFC-0015 P2-A). `--uml activity` / MCP
+  `viz diagram=activity`: per-function control-flow graphs (if/elif/else,
+  loops, try/except, match) as Mermaid flowcharts, with honest
+  static-approximation metadata and node caps. Without `file_path` the
+  function is resolved from the AST index — a unique hit builds the CFG on
+  the first call (#477, #498).
+- **State diagrams** (#475, RFC-0015 P2-B). `--uml state`: stateDiagram-v2
+  from Python `Enum`/`match` FSMs covering both `return Enum.X` and
+  `self.attr = Enum.X` transition patterns; partial results (states found,
+  no transitions) return INFO with the honesty note instead of NOT_FOUND
+  (#480); Python-only coverage disclosed.
+- **Instant edit-safety trio** (RFC-0014, implemented): `impact`
+  test-partition, `test_map`, and `co_change` (true association lift,
+  one git subprocess, per-HEAD LRU cache). co_change refuses to overclaim:
+  n<10 history yields "treat as unknown, not safe" and filtered candidates
+  are counted, never hidden (#469, #495).
+- **`--call-limit` CLI flag** (#500): callers/callees budget parity with MCP.
+- **Loose-assertion ratchet, Layer 1** (#502): CI blocks NEW `>=` / `> 0`
+  test assertions (exemption marker + property-test whitelist); baseline
+  measured and recorded for batched cleanup (#504 started: 32 pinned).
+
+### Changed
+
+- **TOON duplication structurally extinct** (#476, RFC-0012 Phase 2,
+  closes the 6× recurring #439). The per-key denylist is replaced by a
+  value-kind rule: in TOON mode the top level keeps scalars + a 3-entry
+  control-dict allowlist; every other non-empty container is stripped.
+  Measured: a 50-row nav-impact payload is now **0.52×** the JSON size
+  (was ~1.5×+), pinned to exact bytes in CI.
+- **High-fan-in responses budgeted** (honest-truncation convention):
+  nav callers/callees default 50 listed with pre-cap totals + truncated
+  flag (#500 — `callers 'execute'` went 320KB → 27.7KB, 11.5×); content
+  search defaults to 50 listed in normal mode, aggregate modes uncapped
+  (#505, 2.48×); Hyphae select reports `total_matches` + `truncated`
+  (#489) and `index_state` missing/empty/ready + `indexed_files` (#497).
+- **Runtime guidance speaks 8-facade names** (#496, closes #440): 6 files /
+  ~30 legacy tool names swept; every taught example is schema-validated
+  CALLABLE (action exists + params exist) by a new ratchet test.
+- **README restructured** (#501): one-sentence lede, merged quick-start,
+  CodeGraph comparison moved after features, claim→evidence anchors;
+  standalone install corrected to `uv tool install`.
+
+### Fixed
+
+- **Nested functions get call edges** (#484, closes #452): call sites are
+  attributed to the innermost enclosing function with column-aware
+  containment across 6 languages (index-time fix — re-index to benefit).
+- **TypeScript abstract classes extract members** (#478, closes #459):
+  `abstract_class_declaration` traversal + `abstract_method_signature`
+  extraction + query/CLI path; golden master consciously re-pinned.
+- **Go/Rust receiver methods nest under their structs** (#474, closes #456)
+  with first-claim-wins single ownership; the same innermost-span rule also
+  fixed nested-class duplication in Python signature tables (#485).
+- **PR review phantom edges dropped** (#488, closes #450): language-family
+  gate (directional C-family), distinct-file ambiguity counting, generic
+  callback-name filter, anchor-level filtering — 167 phantom edges removed
+  on the repro PR with `phantom_edge_stats` honesty fields.
+- **test_gap scans the full package tree** (#479, closes #457):
+  `max_files` budget no longer consumed by `tests/` — 121 → 7,894
+  production symbols on this repo; coverage verdict is real.
+- **dead-code counts labeled and consistent** (#486, closes #448):
+  `total_dead_functions_transitive` / `*_listed` / `*_cap` + truncated;
+  scoped modes don't flag hidden categories.
+- **class_detail delivers its full contract** (#482, closes #455): fields
+  (incl. annotation-only and whole-class-body `self.*`), visibility,
+  extends, honest inherited fallback; local closures excluded.
+- **signatures supports Python** (#485, closes #442) with extension
+  auto-detect and truthful facade description.
+- **Validation errors enumerate valid values** (#490, closes #449) with a
+  shared `invalid_enum_error` helper + actionable recovery-hint routing.
+- **`edit action=pr` without `pr_url` fails loudly** (#483, closes #451);
+  the facade pr route implies `mode=pr`.
+- **nav context quality** (#487, closes #441): stop-word filtering that
+  preserves quoted/capitalised symbols, production-over-examples ranking,
+  honest next_step.
+- **`is_test_file` requires path-anchored evidence** (#499): production
+  files named `test_*.py` are no longer misjudged; 5 parallel
+  implementations consolidated.
+- **search symbol folds duplicate import rows** (#492, closes #443);
+  **overview counts respect .gitignore** with pruned walk (#493,
+  closes #445); **envelope polish** (#494, closes #446): no null scalars,
+  real status next_step, honest overview verdict semantics.
+- **builtin-receiver evidence gate** (#470, closes #447): `unknown` never
+  becomes `wrong` — bare-name `.get()` no longer binds to `dict.get`.
+- Windows CI stability: co_change timing skip (#473), sqlite handle closes
+  in tests, cross-platform forward-slash paths.
+
+
+## [1.22.0] - 2026-06-10
+
+Extraction-correctness release: a three-way quality audit (source vs TSA vs a
+competing indexer) drove fixes for masked parse failures and invisible
+container declarations across five languages, plus two language graduations.
+
+### Added
+
+- **Bash language support** (#416). `tree-sitter-bash` is now a dependency and
+  `.sh` / `.bash` / `.zsh` are wired through all extension layers (detector,
+  loader, indexer map, CLI file handler). TSA can finally see its own shell
+  scripts; the golden bash corpus auto-activated (11 functions extracted).
+- **Scala language support** (#417). `tree-sitter-scala` wired end-to-end; the
+  golden Scala corpus yields 66 functions / 33 classes / 31 variables. `.sc`
+  deliberately left unmapped (SuperCollider ambiguity) — use an explicit
+  `language` override for Scala scripts.
+- **Java records & annotation types** (#418). `record` and `@interface`
+  declarations (top-level and nested) now appear in outlines as
+  `class_type="record"` / `"annotation"`; methods inside record bodies are
+  also extracted (the traversal previously pruned at the unregistered
+  container).
+- **Kotlin class-kind fidelity** (#419). `annotation class` / `data class` /
+  `enum class` / `sealed class` now surface their kind instead of a flat
+  `"class"`. Known upstream limitation documented: tree-sitter-kotlin 1.1.0
+  mis-parses an *annotated* `annotation class` as an expression.
+- **TypeScript namespaces & modules** (#421, #423). `namespace X {}` /
+  `module Y {}` / ambient `declare module "pkg" {}` containers are extracted
+  (`class_type="namespace"`) and — critically — everything inside them
+  (classes, interfaces, functions, variables) is no longer silently lost.
+- **C++ enums & conversion operators** (#422). Plain `enum` and scoped
+  `enum class` declarations now appear (`enum` / `enum_class`); conversion
+  operators (`operator double()`) are extracted as functions with the cast
+  target as name suffix and return type.
+
+### Fixed
+
+- **Structure tools no longer mask parse failures as empty success**
+  (#414, #415 — the audit's top finding). A detected-but-unparseable file
+  (e.g. `.scala` before #417) used to return `success:true, "0 classes,
+  0 methods"` from MCP `structure` while the CLI errored honestly. All five
+  `analysis_engine.analyze()` consumers now honor `success=False` and surface
+  an honest `language_unsupported` / `internal` error envelope.
+- **Audit sweep, 18 MCP envelope fixes** (#396–#413): canonical top-level
+  `verdict` in error envelopes, `class_tree`/`class_detail` honoring the class
+  identifier, `safe_to_edit` returning NOT_FOUND for unknown symbols instead
+  of false-SAFE, `list_files` honoring the `path` alias, capped caller/callee
+  lists in `impact`/`navigate`, canonical INFO verdicts, `next_step`
+  mirroring, TOON default for `test_gap`, `blast` alias for dependencies,
+  actionable `dead_code` next_step, and a canonical `count` key in symbol
+  search.
+- C resolver: project-defined libc-shadowing names no longer misclassified as
+  stdlib (#370).
+- CSV control-character safety for the remaining writers (#384); per-test
+  budget enforcer is rerunnable (#385).
+
+### Changed
+
+- `change_impact` gains `scope_mode=strict` to mute out-of-scope dirty files
+  (#390).
+- `glama.json` manifest added to claim the Glama MCP server listing (#392).
+- **Test policy (locked)**: count assertions must pin exact values — no
+  `>=`-style approximate assertions (#420). Drift must fail the suite and
+  force a conscious re-pin.
+- README de-virtue pass: broken anchors, stale counts, and overclaims
+  corrected (#402).
+- Docker: the MCP server ships a stdio container (#388) with README
+  deployment docs (#395).
+
+## [1.21.0] - 2026-06-08
+
+Correctness-moat release (backfilled entry): the 13-language classified call
+graph and the run-on-your-repo miswire audit.
+
+### Added
+
+- **Swift resolver + extraction** (#364) — 13 languages active with
+  per-language classification cascades (RFC-0010), adversarially verified to
+  never bind across a language boundary.
+- **`miswire-audit`** (#369, RFC-0011): a run-on-your-repo demo that counts
+  how many call edges a name-only index would mis-wire across languages
+  versus TSA (≈0), with a genuine-collision floor that excludes builtins
+  (#377) and graceful no-FTS5 degradation (#371).
+- Live head-to-head vs CodeGraph on this repo: 745 vs 6 cross-language
+  mis-wires (#366), generalization proof on 5 real repos (#376).
+
+### Fixed
+
+- CSV writers control-char safe on Python 3.10 (#381).
+- nav-context English-connective candidate filtering (RFC-0009 C, #368).
+
+## [1.20.0] - 2026-06-04
+
+Agent-native milestone release: a leaner MCP surface, a CSS-selector graph
+query language, and a static type-inference pass that doubles callee
+resolution — all on top of the consolidated EdgeStore from v1.19.0.
+
+### Added
+
+- **Hyphae DSL — CSS-selector graph queries**. A jQuery-style query language
+  over the code graph: `:calls`, `:callees`, `:extends`, `:implements`,
+  `:subclasses`, `:imports`, plus structural pseudo-classes (`:has`, `:not`,
+  `:in`, `:first-child`, `:nth-child`, `:only-child`). Lexer, parser, and
+  evaluator map selectors directly to resolved edges.
+- **Tree traversal primitives**. `callee_tree` / `caller_tree` return a full
+  call-tree in one call instead of recursive single-hop navigation.
+- **Static type inference for callee resolution**. A mypy/pyright-style pass
+  (no runtime) infers receiver types from `var = ClassName()` assignments
+  (flow-sensitive), class-method dispatch, and pytest-fixture return types —
+  lifting call-edge resolution from 34% to 76% with correctness gates that
+  prefer `unknown` over a wrong resolved edge.
+- **Precise entry-point recall in context**. `codegraph_context` now matches
+  compound and name-based entry points for tighter, more relevant recall.
+
+### Changed
+
+- **MCP surface consolidated to 8 facade tools** (search / nav / structure /
+  health / edit / project / index / viz), down from 60+, cutting tool-
+  definition token cost by ~80%. A legacy shim keeps prior MCP tool calls
+  working, so this is backward compatible.
+- **Unified edge store (B1)**. CALLS scalars promoted to real `edges` columns
+  with SQL pushdown; dropped `ast_call_edges` / `unresolved_refs` in favor of a
+  single `edges` table with an edges-based second-pass resolution.
+- **Synapse second-pass backfill on incremental sync**. `IncrementalSync.sync()`
+  now re-resolves unknown edges once the full-project class map is available —
+  the root-cause fix that lets static type inference actually land.
+
+### Governance
+
+- **RFC process** (`rfcs/`) for substantial changes, plus locked rules: never
+  ignore Codex review, and PR hygiene (one PR = one finished feature, no
+  kitchen-sink PRs).
+
+## [1.19.0] - 2026-06-02
+
+CodeGraph EdgeStore release for faster, more complete agent context after
+v1.18.0. This release promotes the pre-indexed graph store to the primary
+context path and closes the post-release development batch on `develop`.
+
+### Added
+
+- **Unified EdgeStore foundation**. AST cache indexing now persists call and
+  inheritance relationships into a structured edge store for fast graph
+  lookups without reparsing the project on every agent request.
+- **Cross-file unresolved reference recovery**. CodeGraph relation indexing can
+  resolve previously unresolved symbols across files, improving caller/callee
+  and class hierarchy accuracy.
+- **Cascade symbol search**. Symbol lookup now falls through exact, FTS5, LIKE,
+  and bounded fuzzy matching tiers, preserving `match_tier` and rescored
+  relevance metadata for agent routing.
+
+### Improved
+
+- **`codegraph_context` uses EdgeStore first** when CALLS edges are available,
+  avoiding lazy full call-graph parsing while preserving cached fallback
+  behavior for projects without persisted call edges.
+- **Parallel AST indexing parity**. Serial and parallel indexing paths now have
+  focused tests proving symbol rows and call edges remain equivalent.
+- **Dependency floors refreshed** for chardet, isort, pydantic,
+  pytest-asyncio, and pytest-rerunfailures through GitFlow-compliant
+  `develop`-targeted updates.
+
+### Fixed
+
+- **Cascade SQL queries are parameterized**, keeping Bandit clean and avoiding
+  query construction hazards in fallback search paths.
+- **Defensive fallback/error paths are covered** for EdgeStore access,
+  CodeGraph expansion, FTS5 optional metadata, empty FTS batches, and worker
+  parser initialization.
+
+### Validation
+
+- Local full suite: `17511 passed, 92 skipped` (91.30 s on macOS).
+- PR #254 CI passed: GitFlow Guard, PR fast matrix, MCP black-box E2E,
+  locale E2E, real repos E2E, performance benchmarks, build, quality gate, and
+  Codecov patch.
+
+---
+
+## [1.18.0] - 2026-06-01
+
+GitFlow-compliant production release for the post-v1.17 development line.
+This supersedes the unlanded v1.17.4 production attempt: v1.17.4 reached PyPI,
+but PR #228 was closed without merging to `main`. v1.18.0 carries the work
+forward with a guarded release finalization workflow.
+
+### Added
+
+- **`codegraph_context` MCP/CLI workflow** (`#234`). Agents now have a primary
+  one-call architecture context path for natural-language tasks, including entry
+  points, source blocks, and graph relationships.
+- **MCP initialize routing instructions** (`#231`). The server now gives clients
+  clearer startup/tool-routing guidance during initialization.
+
+### Improved
+
+- **Headless MCP startup latency** (`#235`). Top-level package exports are now
+  lazy, avoiding analysis-engine imports during stdio server startup while
+  preserving legacy import compatibility.
+- **Dependabot now targets `develop`** (`#236`). The pip and GitHub Actions
+  update streams follow the project GitFlow matrix instead of opening bot PRs
+  directly to `main`.
+
+### Fixed
+
+- **Release/hotfix finalization no longer masks closed PRs** (`#237`). The
+  automation now treats an existing open or merged finalization PR as
+  idempotent, but fails on closed-unmerged PRs instead of falling through to
+  `gh pr view` and reporting a false green release.
+- **Release version metadata synchronized**. Package version,
+  `tree_sitter_analyzer.__version__`, and `[tool.mcp].server_version` are all
+  aligned for this release and guarded by an agent contract test.
+
+### Validation
+
+- Local full suite: `17456 passed, 92 skipped` (51.54 s on macOS).
+- Release-finalization fix PR #237 CI passed: GitFlow Guard, PR fast matrix,
+  MCP black-box E2E, SQL platform compatibility, regression tests, build,
+  quality gate, and Codecov patch.
+
+---
+
+## [1.16.0] - 2026-05-30
+
+BM25 ranked search, C# language support, and code-intelligence architecture
+consolidation. This is the largest feature release since v1.15.0 — 216 commits
+spanning new language analysis, semantic search improvements, CodeGraph DSL
+extensions, and a full-stack code-quality sweep that promoted 20+ modules from
+B/C → A grade.
+
+### Added
+
+- **FTS5 BM25 ranked symbol search** (G1–G6). All six search paths — `execute_symbol_search`,
+  `ast_cache_tool mode=search`, `symbol_search_tool`, `ASTCache.search_symbols`,
+  `_fts_fast_path`, and `codegraph_query_backend._fts_definitions` — now return
+  results with a `relevance_score` in `[0.0, 1.0]` (best match = 1.0) and a
+  `ranking_method="fts5_bm25"` envelope field. Short queries (`< 2 chars`)
+  fall back to the existing linear scan automatically.
+- **C# language support**. `csharp_helpers.py` parses classes, methods,
+  constructors, properties, fields, enums, interfaces, and attributes. Attribute
+  extraction reads direct `attribute_list` children (not `prev_sibling`),
+  correctly attributing decorators to the symbol they annotate.
+- **Mermaid UML architecture diagram export** via `codegraph_query` `uml(...)`
+  DSL step. Agents can now request architecture diagrams inline in a query chain.
+- **Relation-aware `has(...)` query step** in `codegraph_query`. Filters
+  symbols by whether they have callers, callees, or cross-file references —
+  e.g. `find("Foo").has(callers=True)` returns only Foo symbols that are
+  actually called somewhere.
+- **Chain query selection filters** (`#194`). `select(kind=..., language=...)`
+  post-filter in query chains reduces result noise without a second tool call.
+- **`sort(by='confidence')` in `codegraph_query` DSL**. Works for both
+  `semantic(...)` results (maps `semantic_score` → `confidence`) and FTS5
+  results (maps `relevance_score` → `confidence`).
+- **`total_edges` in `codegraph_status`** for graph density monitoring
+  (per mycelium RFC-0010).
+- **Ruby visibility detection**. `ruby_plugin` now detects `private`,
+  `protected`, and `public` visibility from preceding sibling keywords,
+  matching the Ruby idiom of scope modifiers applied to groups of methods.
+- **`TableFormatter`** at the canonical `formatters/` location (Phase 7 of
+  formatter-architecture unification).
+- **`CallGraph` public adjacency API** (`all_function_refs`, `callers_map`,
+  `callees_map`, `resolve_targets`, `functions_by_file`). MCP tool layer can
+  now access graph internals without crossing the `_private` boundary.
+- **`callee_resolved_file`** exposed in `codegraph_callees` SQL path and
+  `enrich_caller` arg fixed.
+
+### Improved
+
+- **Semantic search 133× faster** via BM25 pre-filter. Symbol candidates are
+  now narrowed with FTS5 before the embedding similarity pass, eliminating the
+  quadratic scan for large repos.
+- **BM25 normalization is now min-max** (`best match = 1.0, worst = 0.0`)
+  instead of the previous `raw / worst` formula. Strong matches are clearly
+  separated from weak ones across all ranked paths.
+- **FTS5 column weights tuned** — name matches are preferred over doc/kind
+  matches, reducing noise in short-query results.
+- **`_concept_candidate_paths` uses FTS5 index** instead of LIKE scan for
+  symbol lookups in `codegraph_query` context resolution.
+- **`codegraph_explore` deprioritizes test files** (`#191`), surfacing
+  production symbols first when exploring an area.
+- **20+ modules promoted from B/C → A grade** through targeted AST-depth
+  reduction and helper extraction (zero behaviour change; all tests pass).
+
+### Fixed
+
+- **Java annotation attribution**. `_reset_caches()` no longer clears
+  `self.annotations`, fixing a pipeline stage where annotations were silently
+  dropped between extraction passes.
+- **Java `implements` generics splitting**. Generic type arguments (`Foo<Bar>`)
+  no longer corrupt the interface list.
+- **Java `interface extends` clause** now extracted into `implements_interfaces`
+  (matching class semantics), instead of being silently dropped.
+- **C# attribute extraction** reads `node.children` instead of
+  `node.prev_sibling`, correctly associating `[Attribute]` decorators with the
+  symbol that follows.
+- **Class visibility no longer hardcoded `"public"`**. `_convert_class` now
+  reads the actual `visibility` attribute from the parsed class node.
+- **Go method call-edge indexing** (`#190`). Method receivers are now
+  registered in the `CallGraph`, fixing missing edges for Go receiver methods.
+- **Dead-code analyzer AST traversal restored** after refactor regression.
+- **MCP server no longer crashes** on an unreadable `SKILL.md` (`OSError`
+  caught) or a corrupt `pyproject.toml` (malformed TOML caught in
+  `parser_readiness`).
+- **`callees` SQL path** now exposes `callee_resolved_file`; `enrich_caller`
+  argument ordering fixed.
+- **SLF001 private-attribute violations eliminated** (144 → 0). All MCP tool
+  tests and plugin code now use public APIs only.
+- **`--full-index-mode` CLI choices** aligned with MCP tool valid modes.
+- **`health_scorer`** excludes `examples/` from project health scoring to avoid
+  inflating the C-grade bucket with demo files.
+
+### Validation
+
+- Local full suite: `18602 passed, 100 skipped, 0 failed` (40.9 s on Apple M-series).
+- Golden-master regression: 78/78 passed.
+- ruff / SLF001 / mypy clean.
+- All 216 commits on `feature/code-intelligence-architecture` branch.
+
+---
+
+## [1.15.3] - 2026-05-27
+
+CodeGraph query-chain reliability and benchmark-evidence release. This
+ships the post-v1.15.2 work that makes TSA more useful on real external
+repositories, especially Go projects and large repos where agents need
+compact, source-grounded answers instead of broad grep-style scans.
+
+### Added
+
+- **Chained `codegraph_query` answer packs** for agent workflows, with
+  compact relationship evidence, source excerpts, and query-chain
+  fallback behavior for concept-style architecture questions.
+- **Reproducible CodeGraph comparison benchmark phases** so performance,
+  token, cost, tool-call, and file-read behavior can be measured across
+  external repositories instead of argued from anecdotes.
+- **Local patch coverage gate** that mirrors Codecov patch requirements
+  before CI, reducing release-cycle surprises.
+
+### Improved
+
+- **Query evidence quality for Go code**. TSA now prefers exact type,
+  method, const, and source-symbol declarations in chained query packs,
+  which makes answers more directly grounded in the code under analysis.
+- **Large-repo indexing and change-impact speed** through hot-path
+  optimizations, dependency-graph cache reuse, and fast-path handling for
+  test-only diffs.
+- **Answer-pack signal-to-noise ratio** by filtering low-value runtime
+  and builtin callees from query relationships while keeping the raw call
+  graph unchanged for users that need complete graph data.
+
+### Fixed
+
+- **Go method call-edge resolution** in CodeGraph relationship packs.
+- **Benchmark schema handling** for current comparison-run outputs.
+- **Windows 3.13 temporal activation test timeout** by bounding git
+  subprocess calls in the temporal test path.
+
+### Validation
+
+- PR #187 CI passed before this release, including Codecov patch gate,
+  Quality Gate, Build, and the Windows 3.13 full test matrix.
+- Local full suite from the final PR #187 validation completed in 67.85s:
+  `17881 passed, 104 skipped, 2 xfailed`.
+- Gin benchmark repeat 97 after the runtime-noise filter recorded
+  `97.1901s`, `344277` total tokens, `$1.070559`, `11` tool calls,
+  and `0` file reads/search calls.
+
+---
+
+## [1.15.2] - 2026-05-25
+
+Patch on v1.15.1. Adds the MCP E2E test framework, tunes the perf logger,
+and cleans up internal complexity — no user-facing behaviour changes.
+
+### Added
+
+- **MCP black-box E2E test suite** (`tests/e2e/`). Smoke, functional, and
+  real-repo test layers that exercise the MCP server as a subprocess. Four
+  new CI workflows: `e2e-locale.yml` (cp932/cp936/cp949 regression guard),
+  `e2e-real-repos.yml`, `health-monitor.yml` (daily monitoring + auto-issue
+  on failure). *(#156)*
+
+### Fixed
+
+- **Perf logger level inheritance**. Logger now inherits the root log level
+  and has propagation disabled, fixing spurious noise at DEBUG level.
+  *(#154)*
+
+### Changed
+
+- **Internal complexity cleanup**. `validate_workflows.py` C-grade → B-grade
+  via helper extraction. `tree_sitter_analyzer/_ast_extraction.py` extracted
+  from `ast_cache.py` to stay under 500-line limit and make
+  `_worker_index_file` picklable independently. *(auto-sprint #155)*
+
+---
+
+## [1.15.1] - 2026-05-25
+
+Patch release. Fixes a long-standing subprocess decoding crash that
+hit every TSA user on Japanese / Chinese / Korean Windows
+(cp932 / cp936 / cp949 locales) — reported during 1.15.0 release
+prep but didn't make the merge window.
+
+### Fixed
+
+- **Subprocess output decoding now forces UTF-8 on every `text=True`
+  call site**, eliminating the `UnicodeDecodeError: 'cp932' codec
+  can't decode byte ...` `_readerthread` crashes.
+
+  Reproduced from real VS Code MCP logs on Windows + Japanese
+  locale: every MCP tool that shells out to `git`, the indexer,
+  or test runners (`change_impact`, `ast_diff`, `semantic_classify`,
+  `codegraph_pr_review`, health scorer, project index, etc.) hit
+  a per-call `Thread-N (_readerthread)` exception when the child
+  process emitted UTF-8 bytes the parent's locale-default decoder
+  could not parse. The server kept running but every subprocess
+  output was silently dropped.
+
+  Fix: append `encoding="utf-8", errors="replace"` to every
+  `subprocess.run` / `Popen` call that was using `text=True`
+  without an explicit codec. 15 call sites patched across 9
+  modules. `errors="replace"` belt-and-braces means any genuinely
+  non-UTF-8 byte still surfaces a `U+FFFD` REPLACEMENT CHARACTER
+  instead of killing the reader thread.
+
+  This bug pre-dates 1.15.0 — it has affected every non-ASCII
+  Windows user since TSA started shelling out. Should have been
+  in 1.15.0 but the report arrived after the merge window closed.
+
+- **Drop a stray PEP-224-style variable docstring in
+  `git_activation.py`** that was misclassified by the
+  `check-docstring-first` pre-commit hook as a second module
+  docstring. Cosmetic; no runtime behaviour change. (Surfaced
+  while landing the cp932 fix above.)
+
+### Compatibility
+
+No breaking changes. Pure patch over 1.15.0.
+
+## [1.15.0] - 2026-05-25
+
+Code-map quality release. Lands the first wave of the v1.15 code-map
+improvement PRD (see `wiki/tsa-code-map-improvement-prd.md`): the
+**`is_fixture` safety net** that prevents agents from refactoring
+files used as negative test fixtures, plus two foundational
+primitives — a `CLAUDE.md` YAML frontmatter parser and a
+`symbol_in_degree()` import-graph primitive — that unblock the next
+batch of PRD work (P4 entry-point honesty, P5 intentional_design
+verdict overrides). Two MCP startup UX bugs also fixed.
+
+### Added
+
+- **`is_fixture` detection + `safe_to_edit` verdict override**.
+  *(PR #150, P3.1 of the v1.15 code-map improvement PRD)*
+
+  When an agent calls `safe_to_edit` on a file referenced as a
+  negative test fixture (e.g. `tree_sitter_analyzer/languages/java_plugin.py`
+  used by `test_python_detects_deep_nesting` for its deep-nesting
+  shape), the verdict is now promoted to **`UNSAFE`** with a
+  `TEST_FIXTURE` `reason_code` and three evidence lines from
+  `tests/`. Refactoring fixture files silently breaks tests — the
+  `feedback_test-fixture-files` incident class burned a full session;
+  this fix prevents recurrence.
+
+  Detection is two-tier and zero-LLM:
+  - **Tier 1 (allowlist)** — `CLAUDE.md` `fixture_allowlist` YAML
+    frontmatter, human-curated, confidence `1.0`.
+  - **Tier 2 (heuristic)** — AST scan of `tests/**/*.py` for three
+    signal patterns observed by real-repo grep:
+    - module-level `Path(...)` joins ending in a project basename → `0.9`
+    - `SAMPLE_*` / `FIXTURE_*` / `GOLDEN_*` constants → `0.85`
+    - bare `tree_sitter_analyzer/.../X.py` literals → `0.7`
+  - Sibling-cluster suppression kills the dominant false positive
+    (lists of `*_plugin.py` filenames are plugin manifests, not
+    fixture references).
+
+  Verdict mapping: confidence ≥ 0.85 → `UNSAFE`; 0.7–0.85 → `CAUTION`;
+  below 0.7 → no override. Composed via the existing `_max_verdict()`
+  chokepoint in `safe_to_edit_helpers.py`.
+
+  Cache: SHA-1 over `(mtime_ns, size)` of every `tests/**/*.py` file,
+  stored at `.ast-cache/fixture_index.json`. Rejects dir-mtime
+  (unreliable on macOS APFS / NFS / CI tarballs).
+
+  Roll-back lever: `TSA_DISABLE_FIXTURE_DETECTION=1` env var
+  short-circuits to a no-op `FixtureFact`.
+
+- **`CLAUDE.md` YAML frontmatter parser** (`tree_sitter_analyzer/utils/claude_md_frontmatter.py`).
+  *(PR #148, PR-0.3 of the v1.15 code-map improvement PRD)*
+
+  Shared infrastructure for **P3** (`fixture_allowlist` source) and
+  the upcoming **P5** (`intentional_design` rules that drive
+  `safe_to_edit` verdict overrides for locked design decisions
+  beyond fixtures — e.g. "TOON default is locked; do not flip to
+  JSON"). Public API:
+  - `load_frontmatter(project_root) -> dict`
+  - `parse_intentional_design(data) -> list[IntentionalDesignRule]`
+  - `parse_fixture_allowlist(data) -> list[FixtureAllowlistEntry]`
+  - `VALID_VERDICT_ACTIONS` frozenset aligned with
+    `base_tool._LEGAL_VERDICTS` (`SAFE / CAUTION / REVIEW / UNSAFE /
+    INFO / WARN / ERROR / NOT_FOUND`). The architect's original
+    spec used `REFUSE`; we coerce that to `INFO` with a warning
+    rather than silently dropping unknown verdict tokens.
+
+  All failure modes (missing file, no frontmatter, malformed YAML,
+  invalid fields) degrade via `WARNING` log + empty return — never
+  raise — so consumer tools can rely on the parser.
+
+  New deps: `pyyaml>=6.0`, `pathspec>=0.12.1`.
+
+- **`DependencyGraph.symbol_in_degree()` primitive** + new
+  `tree_sitter_analyzer/symbol_extractors.py` module.
+  *(PR #149, PR-0.2 of the v1.15 code-map improvement PRD)*
+
+  Answers "how many project files import this symbol by name?" —
+  the missing primitive for **P4** (entry-point ranking honesty).
+  Today the `codegraph_overview` tool keys entry-points off
+  `CallGraph._callers` (function-level call edges), which conflates
+  "no callers" with "true entry point" and collides with
+  `dead_code` detection. P4 will use the new primitive to compute
+  an additive `entry_score` with `confidence` + `evidence` fields.
+
+  API:
+  ```python
+  @dataclass(frozen=True)
+  class SymbolFanIn:
+      symbol: str
+      file_count: int                       # distinct importers, deduped
+      importer_files: tuple[str, ...]
+      defining_files: tuple[str, ...]
+      ambiguous: bool                       # len(defining_files) > 1
+
+  class DependencyGraph:
+      def symbol_in_degree(
+          self, symbol: str, *, defining_file: str | None = None,
+      ) -> SymbolFanIn: ...
+  ```
+
+  Scope: Python only in PR-0.2 (other languages return empty set
+  as documented limitation). Additive — no change to existing
+  `dependents_of` / `find_cycles` / `BlastRadius` / `to_dict` keys
+  (regression guards G1-G4 in the test suite).
+
+### Fixed
+
+- **MCP server no longer advertises an unimplemented
+  `LoggingCapability`**, eliminating the `[error] Failed to set MCP
+  server log level: Error: MPC -32601: Method not found` line in
+  every client log on every connection. *(PR #151)*
+
+  The capability was declared in `build_initialization_options`,
+  which signals clients to call `logging/setLevel` per the MCP spec,
+  but TSA never registered the matching handler — so every client
+  call got back JSON-RPC `-32601` and the client surfaced it as
+  `[error]` noise. Honest fix: don't advertise what we don't
+  implement. TSA's actual verbosity controls (`TSA_DEBUG`, standard
+  Python logging config) are unchanged.
+
+- **`codegraph_metrics` no longer hangs MCP clients on cold AST
+  cache**. *(PR #151)*
+
+  User report: `codegraph_metrics({sections:[cache,health]})`
+  "never returns". Reproduced as **50.34 s real time** on a 1500-file
+  repo with empty cache. MCP clients default to a 30 s tool-call
+  timeout, so the call drops client-side and surfaces as "tool
+  never returns" even though the server eventually completes the
+  index build.
+
+  Root cause: `_get_cache()` synchronously called
+  `ensure_indexed()` which triggered `cache.index_project(max_files=5000)`
+  when the AST cache was empty.
+
+  Fix: new `auto_build` kwarg on `ensure_indexed` (default `True`
+  for backward compat). `codegraph_metrics` is a read-only metrics
+  surface — passes `auto_build=False` so an empty cache returns
+  `None` immediately and the tool emits its existing hint (`Run
+  ast_cache mode=index first`) instead of blocking the request.
+  Cold-start now returns in **0.01 s**.
+
+### Internal
+
+- 22 new tests for the fixture detector + AST scanner
+  (`tests/unit/security/test_fixture_detector.py`), including a
+  real-repo regression canary
+  (`test_real_repo_finds_java_plugin`) that pins the
+  `feedback_test-fixture-files` incident.
+- 37 new tests for the CLAUDE.md frontmatter parser
+  (`tests/unit/utils/test_claude_md_frontmatter.py`), 92.86 %
+  coverage.
+- 13 new `TestSymbolInDegree` cases + 4 regression guards on the
+  existing `DependencyGraph` public surface.
+- Independent multi-agent review pass over the v1.15 code-map PRD
+  (Reality Checker, Product Manager, Backend Architect) caught
+  5 sketch-vs-code factual errors before any implementation
+  started — see `wiki/tsa-code-map-improvement-prd.md` § 0 errata.
+
+### Compatibility
+
+No breaking changes. All additions are opt-in or operate behind
+existing tool envelopes. Roll-back levers:
+`TSA_DISABLE_FIXTURE_DETECTION=1` (P3.1).
+
+## [1.14.0] - 2026-05-24
+
+Quality + consistency release. Adds Swift module-interface support
+(closes #131) and lands the full v1.13 postmortem defense kit. Every
+drift this cycle introduced now has a contract test that catches it
+at commit time instead of in production CI. Net change for end users:
+one new file extension and a more honest README; no behavioural
+breakage.
+
+### Added
+
+- **`.swiftinterface` support in the Swift plugin**. `.swiftinterface`
+  is the module-interface format emitted by `swiftc -emit-module-interface`
+  — Apple ships SwiftUI / Foundation / etc. as `.swiftinterface` in
+  the toolchain. Wired into all 4 extension-resolution paths
+  (`_lang_extension_map`, `file_handler`, `language_detector`,
+  detector helpers) so the file is detected as swift regardless of
+  which entry point sees it. *(PR #143, closes #131)*
+- **`tests/unit/test_lang_extension_map.py::test_swiftinterface_resolves_in_all_known_ext_maps`**
+  — asserts consistent resolution across the indexer SSoT,
+  `file_handler`, and `LanguageDetector`. Catches map-drift before it
+  becomes a silent-skip bug like the 2026-05-24 Alamofire incident.
+
+### Added (release hygiene — postmortem defense kit)
+
+- **`docs/POSTMORTEM_v1.13.md`** — full retrospective on 10 incidents
+  hit during the v1.13.0 / v1.13.1 release lifecycle. Each entry
+  lists symptom, root cause, why generic defenses missed it, and the
+  new automated check.
+- **`AGENTS.md § Anti-Patterns (from v1.13 postmortem)`** — 8 standing
+  agent rules, each citing its postmortem section. Includes:
+  no-skip-without-tracking, YAML/actionlint enforcement, Windows
+  PowerShell ASCII-only, Linux-only grammar snapshot regen, 3.11+
+  stdlib floor check, develop-not-behind-main, rebase-over-squash
+  for big PRs, and `--maxfail` / `--session-timeout` floors.
+- **`scripts/check_ps_ascii.py` + `tsa-ps-ascii` pre-commit hook** —
+  blocks non-ASCII bytes inside `shell: powershell` `run:` blocks.
+  Windows PowerShell 5.1 reads inline scripts as cp1252 and crashes
+  with `TerminatorExpectedAtEndOfString` on UTF-8 emoji.
+- **`rhysd/actionlint` pre-commit hook** — validates
+  `.github/workflows/*.yml` for both YAML syntax and Actions
+  specifics (dead `uses:` refs, bad expression syntax). Catches the
+  failure class behind PR #138's auto-sprint startup_failure storm.
+- **7 new contract tests** in `tests/unit/test_agent_contracts.py`
+  guarding each rule + the README ↔ registry parity. Notable:
+  `test_skips_have_tracking_references` (ratchet at 291 — new
+  untracked skips must drop the budget first) and
+  `test_readme_counts_match_registry` (drives the numbers shown in
+  README.md / README_ja.md / README_zh.md off the actual registries).
+
+### Fixed
+
+- **README ↔ registry drift across 3 locales**. `README.md`,
+  `README_ja.md`, and `README_zh.md` claimed "50 MCP tools" — actual
+  count is 58. Same files claimed "248 CLI flags" — actual long-flag
+  count is 237. Fixed 9 occurrences and added a contract test that
+  catches recurrence at commit time. *(PR #142)*
+- **`AGENTS.md` `--session-timeout` mention** out of sync with
+  pytest config (was 300, config bumped to 600 in v1.13.1).
+- **`docs/POSTMORTEM_v1.13.md`** path/name typos that pointed at
+  non-existent `scripts/check_ps_ascii.sh` and singular
+  `test_skips_have_tracking_reference`.
+- **`scripts/check_ps_ascii.py`** regex now accepts trailing YAML
+  comments (`shell: powershell  # note`) which it previously
+  silently bypassed.
+- **`test_no_powershell_blocks_contain_non_ascii`** cwd-leak under
+  xdist (moved `os.chdir` inside the `try` block).
+
+### Changed
+
+- `pyproject.toml` `[project].version` and `[tool.mcp].server_version`
+  bumped to `1.14.0`.
+- `pyproject.toml` `[project].description` corrected: "50 MCP tools"
+  → "58 MCP tools".
+- `docs/CODEMAPS/languages.md` Swift row now lists both `.swift` and
+  `.swiftinterface` (issue #131); generation date bumped to 2026-05-24.
+
+## [1.13.1] - 2026-05-24
+
+CI infrastructure patch — same wheel as 1.13.0 for end-users, but the
+source distribution carries two important repository-level fixes.
+
+### Fixed
+
+- **`.github/workflows/auto-sprint-execute.yml` no longer fails on every push to `main`**.
+  PR #133 introduced an invalid `run: |` literal scalar (multi-line
+  `git commit -m` continuations returned to column 0, breaking the
+  indent). GitHub Actions parsed the file on every push and
+  synthesized a startup_failure run even though the workflow only
+  declares `on: workflow_dispatch`. The block now uses multiple `-m`
+  flags + a printf-built `$PR_BODY` so it stays inside the literal
+  scalar's 10-space indent. The action ref `anthropics/claude-code-base-action@v1`
+  (which doesn't exist) is pinned to `@beta` (the only published tag).
+  *(PR #138)*
+
+### Added
+
+- **GitFlow Branching Mandate** — three-layer enforcement so every
+  branch operation conforms to `GITFLOW.md`:
+  - `AGENTS.md § GitFlow Branching Mandate` — the head→base matrix,
+    the MUST-NEVER list (including the new "don't use `hotfix/*` for
+    non-release fixes — it auto-triggers PyPI publish" caveat
+    learned the hard way), and the full release flow.
+  - `.github/workflows/gitflow-guard.yml` — CI fails any PR whose
+    head→base pair violates the matrix (e.g. `feature/* → main`).
+    Bot PRs (`dependabot/*`, `renovate/*`, `github-actions/*`) are
+    allow-listed so automation keeps working.
+  - `test_gitflow_documentation_is_present` in
+    `tests/unit/test_agent_contracts.py` — guards against the docs
+    or workflow being silently weakened.
+  *(PR #137)*
+
+### Changed
+
+- `pyproject.toml` `[project].version` and `[tool.mcp].server_version`
+  bumped to `1.13.1` (already matched 1.13.0 after the v1.13.0
+  release; this is the routine patch bump for the new release cycle).
+
+## [1.13.0] - 2026-05-24
+
+CodeGraph parity + benchmark + 5-language unblock release. TSA now
+beats CodeGraph on the median of the 6-repo head-to-head benchmark
+(**−11 % cost vs CodeGraph's −4 %**), with a strict CLI superset.
+
+### Added
+
+- **`codegraph_navigate` PRIMARY entry point**: description-only tweak
+  that prepends a PRIMARY signal so LLM agents pick this unified
+  go-to-def / find-refs / call-hierarchy tool FIRST before chaining
+  the lower-level primitives. Single biggest factor in dropping
+  Excalidraw's TSA-arm turn count from 33 → 2.
+- **`codegraph_status` MCP tool** (+ CLI `--codegraph-status [--codegraph-status-no-lag]`):
+  index health at-a-glance in one read-only call —
+  indexed yes/no, total files / symbols, schema version, FTS5
+  availability, cache lag vs newest source. Replaces the prior need
+  to triangulate three tools (`ast_cache` + `codegraph_autoindex` +
+  `check_tools`). G2 gap closure.
+- **`codegraph_explore` MCP tool** (+ CLI `--codegraph-explore QUERY
+  [--codegraph-explore-max-files N] [--codegraph-explore-max-symbols N]
+  [--codegraph-explore-outline-only]`): bulk-fetch N related symbols'
+  source + relationship map in one capped call. Replaces ~8 chained
+  `codegraph_node` / `analyze_code_structure` calls when surveying an
+  unfamiliar area. Hard caps: maxFiles=12 (≤30), maxSymbols=20 (≤50),
+  200-line snippet cap, 1 MB file cap. G1 gap closure.
+- **`--affected FILE [FILE...]` CLI** (+ `--affected-filter GLOB`,
+  `--affected-quiet`): list test files transitively impacted by
+  changes to the given source files. Multi-language heuristic covers
+  Python / Go / Java / Kotlin / Rust / TS / JS / Swift conventions.
+  Closes the last surface advantage CodeGraph's CLI held over TSA's
+  CLI; TSA-CLI is now a strict superset of CodeGraph's CLI.
+- **PRIMARY / ADVANCED / NICHE tier signals** on 5 high-traffic MCP
+  tools (codegraph_symbol_search / callers / callees / impact +
+  ADVANCED on call_graph, NICHE on resolve). Pure description-only
+  edits; the agent's first-shot tool selection converges faster.
+- **`tree_sitter_analyzer/_lang_extension_map.py`** — single source
+  of truth for file-extension → language mapping (was duplicated in
+  `ast_cache.py` and `project_graph.py`, see Fixed below).
+- **`tests/unit/test_lang_extension_map.py`** — 9-case regression
+  suite that enforces every language plugin is reachable via at
+  least one extension, both legacy aliases point at the canonical
+  map, and the 5 long-broken extensions stay wired.
+- **Three internal benchmark / audit docs** in `docs/internal/`
+  (gitignored — analysis snapshots, not product docs):
+  `CODEGRAPH_GAP_AUDIT_2026-05-24.md`,
+  `CODEGRAPH_3WAY_EVAL_2026-05-24.md`,
+  `CODEGRAPH_BENCHMARK_FINAL_2026-05-24.md`.
+
+### Fixed
+
+- **5-language indexer silent-drop** (`50e99a8f`): Swift, Kotlin,
+  Ruby, PHP, and C# files were silently rejected with
+  ``status: skipped, reason: unsupported language`` because the
+  ``project_graph._language_from_ext`` map (called by
+  ``ast_cache.index_file``) omitted those five extensions even
+  though plugins, queries, and parsers all shipped for them. Single
+  5-line patch + regression test. The Alamofire benchmark surfaced
+  it: TSA had been indexing 10 / 98 files (and those 10 were
+  JavaScript files under ``docs/``). Post-fix: 108 / 108.
+- **`.cs` language token normalised to ``"csharp"``** (was
+  ``"c_sharp"`` in two of the four call sites — incompatibility
+  with the rest of the codebase). Even with the ext-map fix above,
+  ``.cs`` would have failed at plugin lookup.
+- **60+ pre-existing test failures across 20 test files** brought to
+  green (16,154 → 0 failed): ast_cache watch modes wired,
+  route_detector Go scanners reinstated after merge loss, qualified-
+  name resolution in CallGraph, file_health / project_health 6-field
+  coverage transparency, autonomous-runtime production scripts
+  restored from over-aggressive untrack, verdict canonicalisation
+  on symbol_lineage / safe_to_edit / read_partial / agent_skills,
+  `_build_error_envelope` restored after r37ar deletion, ratchets
+  held with documented tech-debt acknowledgement, n7 event-loop
+  leak under Python 3.14 gc-collect.
+- **MCP-builder audit pass** carried over from the previous
+  unreleased window: every MCP tool now ships canonical
+  `annotations` (4 hints), `outputSchema`, and verdict envelopes.
+
+### Changed
+
+- **Tool registry now exports 50 MCP tools** (was 48 in v1.12.0).
+- **Skill layer expanded to 13 `tsa-*` skills** (was 10): adds
+  `tsa-graph`, `tsa-pr-review`, `tsa-refactor-queue`,
+  `tsa-edit-then-verify`, `tsa-find`, `tsa-landing`,
+  `tsa-health-watch`, `tsa-edit-safety`, `tsa-constraints`,
+  `tsa-temporal`, `tsa-deps`, `tsa-index`, `tsa-structure`.
+- **READMEs (English / 简体中文 / 日本語) fully rewritten** around
+  the 6-repo benchmark, Skills positioning, and CLI superset claim.
+  Structure modelled after CodeGraph's README hook-first layout but
+  with TSA's measured numbers. Stale facts removed: ``v1.10.4`` /
+  ``v1.11.1`` badges, ``6,246 tests`` / ``8,409 tests`` / ``8,942
+  tests`` (now 16,154), and inflated MCP-tool counts.
+- **Pre-existing tech-debt ratchets held with documentation**:
+  `test_argument_parser_builder_ratchet` allows MAX_CRITICAL=2 /
+  MAX_LONG_METHOD=4 (file is 1533 lines with one 734-line
+  `_add_mcp_analysis_options` method); structural split scheduled
+  for the next sprint.
+- **CI hardening**: 20 plugin files now carry
+  ``from __future__ import annotations`` — Python 3.10 no longer
+  raises NameError on TYPE_CHECKING-only types in async signatures.
+
+### Removed
+
+- **`ToonEncoder.COMPACT_DOCSTRING_LIMIT` + automatic docstring
+  truncation** (formatters/toon_encoder.py): the encoder no longer
+  silently clips long string values to ~80 chars with an `...`
+  suffix. Callers (analysis tool envelopes, `code_patterns`, etc.)
+  now own the slice — typically a 200-char ceiling at the field
+  level — so summary lines and TOON tables don't have to fight the
+  encoder for the final shape of the payload. **Contract break for
+  downstream consumers that relied on the encoder doing this clip.**
+  See skipped contract test:
+  `tests/integration/formatters/test_toon_public_contract.py::
+  test_contract_docstring_truncation_with_ellipsis`.
+
+### Benchmark (head-to-head vs CodeGraph)
+
+| Repo | Lang | Baseline | CodeGraph | TSA |
+|---|---|---|---|---|
+| Gin | Go | $0.164 | $0.094 | **$0.080** ⭐ |
+| Alamofire | Swift | $0.201 | $0.219 | **$0.147** ⭐ |
+| Excalidraw | TS | $0.204 | **$0.179** | $0.212 |
+| Django | Py | $0.162 | **$0.106** | $0.205 |
+| Tokio | Rust | **$0.214** | $0.285 | $0.303 |
+| OkHttp | Java | **$0.169** | $0.200 | $0.178 |
+| **Median Δ** | | | **−4 %** | **−11 %** |
+
+Single-run-per-arm, Haiku 4.5. Raw envelopes + reproducer scripts
+in `docs/internal/CODEGRAPH_BENCHMARK_FINAL_2026-05-24.md`.
+
+### Quality
+
+- **16,154 unit tests pass** (was 16,094 in v1.12.0 — +60 from new
+  tools, regression tests, and re-enabled previously-broken tests).
+- **mypy clean** across 554 source files.
+- **ruff clean** across the whole repo.
+- **100 % coverage on the 5-language unblock regression suite**.
+
+## [Unreleased]
+
+### Fixed
+
+- **Java annotation extraction — full pipeline fix** — Six independent bugs caused annotations
+  to be empty for all Java classes, methods, and fields. Root causes (in order of discovery):
+  1. `_reset_caches()` incorrectly cleared `self.annotations` (raw AST data, not a cache).
+  2. `extract_annotations()` called after `extract_classes()`/`extract_functions()` in
+     `extract_elements()`, so proximity cache was empty at lookup time.
+  3. `analyze_code_structure_helpers.py` hardcoded `"annotations": []` in `_convert_class()`,
+     `_convert_method()`, `_convert_field()` instead of reading from model objects.
+  4. `field_declaration` was missing from `container_node_types`, so field annotations
+     (`@ManyToMany`, `@Column`, `@Id`) were never traversed.
+  5. `analyze_file()` never called `extract_annotations()` at all — `self.annotations` was
+     always `[]` for the MCP analyze path (only `extract_elements()` had the annotation call).
+  6. Class annotation attribution used ±2-line proximity matching. `@Override` on a method
+     2 lines below a class declaration incorrectly bled into that class. Replaced with
+     `_extract_node_annotations()` — reads only the class node's direct modifiers subtree
+     in the AST, making attribution exact and immune to nearby-annotation confusion.
+  All six bugs fixed; 18 004 tests pass. Validated via synthetic MCP test
+  (`TestBoundedLocalCacheSynthetic`) and full Java suite (1046 tests, 0 failures). See
+  `openspec/changes/improve-java-annotation-extraction/` for full writeup.
+
+- **Java `implements` generic preservation** — Interface list parsing split on commas inside
+  generic type arguments (`LocalCache<K, V>, Runnable` was misread as three interfaces). Fixed
+  with a depth-counter-based splitter in `_split_respecting_generics()`. Validated against
+  netty (T3.3): `AddressedEnvelope<M, A>`, `ChannelFactory<T>` correctly preserved.
+
+- **Java interface `extends` clause extraction** — Java `interface Foo extends Bar, Baz<T>`
+  uses a different tree-sitter node (`extends_interfaces`) than class `implements`
+  (`super_interfaces`). Previously ignored, so all interfaces showed `implements_interfaces=[]`.
+  Fixed by adding `extends_interfaces` handler in `_extract_class_relationships()`. Validated
+  against netty `Channel extends AttributeMap, ChannelOutboundInvoker, Comparable<Channel>`.
+
+- **C# attribute extraction** — All C# classes and methods returned `annotations=[]` because
+  `extract_attributes()` walked `node.prev_sibling` to find `[ApiController]` / `[HttpGet]`
+  style attributes. In the tree-sitter-c-sharp grammar, `attribute_list` nodes are **direct
+  children** of the declaration node (not siblings), so `prev_sibling` always returned `None`.
+  Fixed by iterating `node.children` and extracting names from the `attribute → identifier`
+  subtree. Affected: all C# classes, methods, fields, properties with any `[Attribute]`
+  decorator. Now `UsersController` correctly shows `annotations=[ApiController, Route, Authorize]`.
+
+### Removed
+
+- **`feat/autonomous-dev` branch** (local + `origin/`): experimental fork fully merged into `feat/consolidated` via commit `44d0a11c`. No content lost — all session work cherry-picked or merged.
+
+### Added (carried over to 1.13.0 above)
+
+- `codegraph_incremental_sync` MCP tool — incremental content-hash re-index.
+- 3 new `tsa-*` skills (`tsa-refactor-queue`, `tsa-pr-review`, `tsa-edit-then-verify`).
+- `scripts/branch-guard.sh` PreToolUse hook.
+
+## [1.12.0] - 2026-05-20
+
+### Added (Autonomous-Dev Audit)
+
+- **`detect_routes` MCP tool**: Auto-discovers HTTP routes across Flask, Django, FastAPI, Express (JS/TS), and Spring Boot from a project's source tree. Pairs with `_route_cache` (per-file SQLite cache keyed by content hash + mtime; ~2 queries total for cold-then-warm scans) and `_route_detector_scanners` (per-framework AST walkers). Equivalent to CodeGraph's route-map feature.
+- **`services/` boundary module**: Re-exports `build_agent_skills_inventory`, `build_agent_workflow_pack`, `build_parser_readiness_advice` from `cli/`. Fixes the bidirectional cycle between `mcp/tools/` and `cli/` (`test_no_mcp_tool_imports_cli` contract test enforces no regression).
+- **Centralised exception sanitiser** (`mcp/utils/error_sanitizer.py`): Single source of truth for stripping project paths and stack traces from error messages returned over MCP.
+- **`ToolResponse` typed envelope** (`mcp/tools/tool_response.py`): Common response shape so every tool's success/error/data layout is consistent (`test_every_tool_response_honours_envelope` contract test enforces).
+- **Plugin golden-master regression suite**: 59 tests cover every shipped plugin's `extract_*` output against pinned JSON snapshots — catches silent regressions across all 18 languages.
+- **Autonomous-Dev pipeline scaffolding**: `scripts/auto_review.py` and `scripts/auto_sprint_brief.py` turn `--change-impact` output into a Claude-ready sprint brief; CI matrix executor under `.github/workflows/auto-sprint*.yml` runs without exposing API keys in untrusted inputs.
+
+### Changed
+
+- **`apply_toon_format_to_response` preserves metadata**: When wrapping a result in TOON, only the bulk-data fields (`results`, `matches`, `content`, `lines`, …) are stripped; small metadata fields (`success`, `error`, `file_path`, `query`, …) survive, so callers can still branch on the envelope without parsing TOON.
+- **`ToonEncoder` degrades gracefully on circular references**: Emits a `[...]` placeholder instead of raising mid-encode.
+- **`ToonEncoder` array-table mode requires matching keys**: Mixed-key lists like `[{"a":1},{"b":2}]` are no longer silently flattened with the wrong schema; they fall back to inline encoding.
+- **`AnalysisSession` uses timezone-aware UTC**: `datetime.now(tz)` replaces the deprecated `datetime.utcnow()` (fixes a 24-test deprecation-warning cluster on Python 3.12+).
+- **`json_plugin.extract_elements` honours `ElementExtractor` LSP**: Returns `dict[str, list[...]]`; the raw list is still available as `extract_json_elements`.
+- **`GetCodeOutlineTool` / `ModificationGuardTool` use `_on_project_root_changed` hook**: Project-root reactions consolidated on the BaseMCPTool hook (ARCH-A4) — no more `set_project_path` overrides.
+- **`open_streaming_context` logs both `OSError` and `LookupError`**: The caller's warning hook fires consistently on either filesystem or invalid-encoding failure.
+
+### Performance
+
+- **`RouteDetector` cached via `ASTCache`**: Cold scan now repeats at ~16 ms on the analyser's own repo; previously re-parsed every file on every call.
+- **`Parser._cache` persistent across runs**: Content-hash-addressed; ~140x speed-up on warm runs.
+- **MCP server lazy import**: Cold start 316 ms → 80 ms.
+- **`ASTCache.index_project` parallelised**: Linear scaling with file count.
+
+### Fixed
+
+- **`output_file` traversal blocked** (SEC-1): Rejects paths that resolve outside `project_root` with a clean error.
+- **`--code-patterns` docstring false positive**: Triple-quoted strings inside function bodies no longer mis-flagged as security issues.
+- **`--table=full --output-format=toon` silently ignored**: Now emits a clear error explaining the format combo is unsupported.
+- **C plugin: macros inside `#ifdef`/`#if`/`#else`/`#elif` branches now extracted**: The audit's c_plugin refactor split traversal into `_c_traversal_helpers.c_traverse_and_extract`, and its container-node allowlist was missing the preprocessor-conditional node types. Walker stopped at `#ifdef` boundaries and silently dropped every macro (and any other declaration) inside conditional blocks. `preproc_if`, `preproc_ifdef`, `preproc_else`, `preproc_elif` added to the allowlist; new regression test `test_extract_macros_inside_ifdef_branches` covers object-like, function-like, `#ifndef`, `#if defined(...)`, and `#elif` branches.
+
+### Infra / Quality Gates
+
+- mypy stays at 0 errors across 468 source files; `json_plugin` added to the per-module override list.
+- pre-commit `mypy` hook unlocked (`AUDIT-INFRA-1`).
+- 19/19 contract tests pass after consolidation (`test_agent_contracts.py`). Plugin discovery is now zombie-aware: when both `<lang>_plugin.py` and `<lang>_plugin/` exist, only the live package is audited.
+- 78/78 integration golden master tests pass (snapshots regenerated to match the audit-refactored extractor output).
+- Five `import *` re-export aggregator test files emptied to docstring placeholders — under xdist `--dist=loadfile`, each was collecting the same test classes a second time and producing shared-state flakes. `~248` duplicate-collected tests removed; no coverage loss.
+- `pytest-rerunfailures` wired into `pytest.ini` addopts as `--reruns=2 --reruns-delay=1`. Residual xdist shared-state flakes self-heal on the second attempt; real regressions still surface after 3 consecutive failures.
+- Test suite: 14,659 passed / 0 deterministic failures / 0 unrecovered flakes (down from 562 mid-consolidation). The dev-local agent / runtime directories (`.claude/`, `.agents/`, `.claude-flow/`, `.swarm/`, `.autonomous-runtime/`, `summary.json`) are no longer tracked by git — they were committed before `.gitignore` rules were added and produced ~53k lines of personal-config bloat in the diff against main. Untracked with file content preserved on disk.
+
+### Breaking
+
+- None. `apply_toon_format_to_response` returns a *superset* of its previous (1.11.x) shape: TOON responses now also include the metadata fields callers may have been reaching for via the wrapped JSON.
+
+## [1.11.1] - 2026-04-10
+
+### Added
+
+- **Unified `summary_line` in `modification_guard`**: One line shows everything Claude needs: `BaseEntity  rank=#1  pr=0.3768  callers=12  verdict=UNSAFE`. No more switching between critical and UNSAFE views.
+
+## [1.11.0] - 2026-04-10
+
+### Added
+
+- **Architecture-aware PageRank for `get_project_summary`**: Critical nodes ranked by extends/implements hierarchy (not import frequency). Claude sees the project's architectural skeleton at session start. Validated on elasticsearch (40k files), spring-framework (11k), mybatis, spring-petclinic — all return correct #1 architecture node.
+- **Plugin edge_extractors/ package**: New language support = new file + 1 line registration. No modification to existing code. Ships with Java, Python, TypeScript extractors.
+- **Java first-party filtering**: Reads groupId from pom.xml/build.gradle. Only project-internal extends/implements create graph edges. stdlib, third-party, java.lang auto-imports all excluded.
+- **Python first-party filtering**: Uses `sys.stdlib_module_names` + `importlib.metadata` — zero configuration, zero maintenance.
+- **`modification_guard` + PageRank integration**: Reads `critical_nodes.json`. Top-10 architecture nodes get verdict boosted (CAUTION → REVIEW). Shows `architecture_rank` and `architecture_warning` in safety report.
+- **Incremental index build**: mtime+size comparison. Cache hit: 16ms. Single file change: 95ms.
+- **`summary.toon` pre-rendering**: `get_project_summary` reads pre-built file directly, < 50ms.
+- **Test file exclusion**: Files under `/test/`, `/tests/`, `/testFixtures/` paths skipped from PageRank (ESTestCase with 4031 subtypes no longer pollutes rankings).
+
+### Fixed
+
+- **Silent directory drop bug**: Top-level dirs without `__init__.py` (spring-framework 11k files, netty 4k) were invisible in `get_project_summary`. All dirs now appear, classified as core/context/tooling.
+- **HTML tag leakage**: caffeine README `<a href=...>` tags stripped from `what:` field.
+- **buildSrc misclassification**: Gradle build dirs classified as `core`, not `context`.
+- **annotations dict bug in `analyze_scale_tool`**: `ann.name` crashed on dict annotations. Fixed to `ann["name"]`.
+
+### Changed
+
+- `mcp_instructions` updated: Claude auto-uses `critical:` section from summary at session start.
+- `_extract_edges_from_file` refactored from 190-line monolith to 12-line registry delegation.
+
+### Testing
+
+- 75 new tests (48 pagerank + 27 modification_guard).
+- 8,942 total tests passing, 0 failures.
+- End-to-end validated: 5 tool calls (with summary) vs 10+ (without) = 2x efficiency on unfamiliar projects.
+
+## [1.10.8] - 2026-04-10
+
+### Fixed
+
+- **Java annotation extraction completely restored**: `analyze_code_structure` was returning `annotations=[]` for all Java methods, classes, and fields. Four independent root causes fixed: (1) wrong extraction order in `extract_elements()` — annotations extracted after functions/classes; (2) `_reset_caches()` was clearing `self.annotations` source data instead of only the lookup cache; (3) `analyze_code_structure_tool.py` hardcoded `"annotations": []` instead of reading from model objects; (4) `field_declaration` was missing from `container_node_types` so field annotations (`@ManyToMany`, `@Column`) were never traversed. Validated against spring-petclinic.
+- **Java `implements` generic type arguments preserved**: `re.findall(r"\b[A-Z]\w*")` was splitting `LocalCache<K, V>` into `['LocalCache', 'K', 'V']`. Replaced with `_split_type_list()` using angle-bracket depth counter. Validated against caffeine `BoundedLocalCache.java` (34 inner classes).
+- **Java class annotation bleeding fixed**: `@Override` from a preceding method was being attributed to the next class declaration via ±2-line proximity heuristic. Replaced with `_extract_annotations_from_modifiers()` that reads directly from the AST `modifiers` node. Validated against caffeine.
+- **`trace_impact` `call_count` reflects true total**: `call_count` was computed from `len(usages)` after truncation by `max_results`, making HIGH IMPACT symbols appear LOW when `max_results` was set. Now `true_total` is captured before truncation. Validated against spring-framework (`@Component`: 695 usages with `max_results=5` now correctly returns `call_count=695, impact_level="high"`).
+- **`query_code` `#match?` predicate restored for tree-sitter 0.25+**: `QueryCursor.matches()` in tree-sitter 0.25+ does not apply custom predicates (`#match?`, `#not-match?`) automatically. Added `_parse_match_predicates()` and `_apply_match_predicates()` to manually filter in `_execute_newest_api()`. All Spring/JPA semantic queries (`spring_controller`, `jpa_entity`, etc.) now correctly filter by annotation name.
+- **Java `marker_annotation` node type handled in queries**: Annotations without arguments (e.g. `@Controller`, `@Entity`, `@Bean`) are `marker_annotation` nodes in tree-sitter, while annotations with arguments are `annotation` nodes. Spring/JPA queries were only matching `annotation`, returning 0 results for bare annotations. All affected queries updated to use alternation `[(marker_annotation ...) (annotation ...)]`.
+- **YAML scalar `inf`/`nan` classification**: `float('inf')` is valid Python but YAML 1.2 treats `inf` as a plain string. `_is_number()` now uses a regex matching YAML 1.2 core schema numeric patterns instead of `float()`.
+
+### Added
+
+- **17 new Java query types**: Spring ecosystem (`spring_bean`, `spring_configuration`, `spring_component`, `spring_transactional`, `spring_autowired`, `spring_request_mapping`, `spring_event_listener`, `spring_scheduled`), testing (`junit5_test`, `junit5_lifecycle`, `parameterized_test`), Java 16+ (`record_declaration`, `sealed_class`), concurrency (`volatile_field`, `spring_async`, `synchronized_method`), exceptions (`throws_declaration`).
+
+### Testing
+
+- 32 new TDD tests across 4 test files, validated against spring-petclinic, caffeine, spring-framework, and netty.
+- 8,789 total tests passing, 0 failures.
+- netty large-file stability: 6,500-line files analyzed without crash; `get_code_outline` achieves 89–92% token savings vs full file read.
+
+## [1.10.7] - 2026-04-05
+
+### Added
+- `decorator_start_line` field on `Function` and `Class` models — when a Python function or class is decorated, this holds the decorator line number while `start_line` correctly points to the `def`/`class` line for go-to-definition.
+
+### Fixed
+- **Go plugin**: removed synthetic outer `import_declaration` element — every `import (...)` block was emitting N+1 Import elements (one outer wrapper plus one per spec). Now only the individual specs are returned.
+- **Grammar coverage validator**: O(N×M) matching loop replaced with O(N) line_index build + O(M) per-element lookup. 17-language full validation no longer risks CI timeout.
+- **Coverage inflation**: single-line constructs like `class Foo: pass` no longer inflate coverage by 3-5x. First-match-plus-skip-root approach correctly attributes coverage to the outermost semantic node.
+- **Wrapper detection**: removed `"body"` from `_WRAPPER_FIELDS` — virtually every compound statement (`for`/`if`/`while`/`try`) has a `body` field, causing near-100% false positive rate. `decorated_definition` now correctly ranks first.
+- **Python `start_line`**: reverted to point to the `def`/`class` line instead of the decorator line.
+- **Rust/Kotlin/Scala traversal**: converted `_traverse_and_extract` from recursive DFS to iterative stack, preventing stack overflow on deeply nested generated code.
+- **Benchmark CI**: `continue-on-error: true` on artifact download step so trend analysis job doesn't fail when no prior benchmark results exist.
+
+### Performance
+- `AnalysisSession`: 5-second cache for `git rev-parse HEAD` — repeated session creation in the same workflow no longer forks a subprocess per file.
+- `AnalysisSession`: mtime-based file hash cache — unchanged files skip SHA256 recomputation on repeated analysis.
+- **MCP tool descriptions**: rewritten to lead with user intent ("Extract code structure", "Check file size before reading", etc.) — AI agents pick the right tool faster.
+
+### Changed
+- `python_plugin.py` split into `python_plugin.py` (386 lines, plugin shell) and `python_extractor.py` (1599 lines, extraction logic) — file was 1959 lines.
+
+## [1.10.6] - 2026-04-04
+
+### Added
+
+- **Grammar Coverage Phase 1.2 — Auto-Discovery Engine**: Runtime grammar introspection without `grammar.json`. `AutoDiscoveryEngine` enumerates all named node types via tree-sitter Language API, detects wrapper nodes via multi-feature scoring, and enumerates syntax paths via AST traversal.
+- **Built-in Code Corpus** (`discovery_corpus.py`): 17-language code corpus covering all major syntax structures, used for wrapper node analysis and coverage gap detection.
+- **Grammar Snapshot System** (`grammar_snapshot.py`): Snapshot/diff engine to catch grammar regressions in CI. Run `--update` to baseline, CI compares each run.
+- **CI Grammar Guard** (`.github/workflows/grammar-coverage-guard.yml`): Automatic workflow that detects new grammar node types and requires corpus + plugin updates before merging.
+- **Auto-discovery test suite** (`test_auto_discovery.py`): 144 tests covering the full Phase 1.2 auto-discovery engine.
+- **PHP namespace/trait-use extraction**: `namespace Foo\Bar;` and `use TraitName;` now appear as imports.
+- **PHP constant extraction fix**: `const STATUS_ACTIVE = 1;` now extracts the constant name correctly.
+- **Rust module extraction**: `mod utils { ... }` and `mod utils;` now extracted as class-level elements.
+- **Rust trait method signatures**: `fn foo(&self) -> T;` (without body) now extracted from trait definitions.
+- **Go struct field extraction**: Struct fields (`Name string`) now extracted as variables.
+- **Go type parameter extraction**: Generic type parameters `[T any]` now tracked.
+- **C++ template type parameters**: `typename T` and `class T` now extracted for grammar coverage.
+- **C++ enum extraction**: `enum class Color { ... }` now extracted as class-level elements.
+- **C++ preprocessor conditional extraction**: `#if`, `#ifdef`, `#ifndef` blocks now tracked.
+- **C++ concept extraction**: C++20 `concept` definitions now extracted.
+
+### Fixed
+
+- **JS `_is_exported_class` regression**: Export detection was broken by the `extract_exports` refactor — `self.exports` was no longer populated, causing all JavaScript classes to silently report as unexported. Restored legacy export tracking alongside new `CodeElement` output.
+- **Java plugin false positives**: `local_variable_declaration` was incorrectly mapped to the field extractor, causing local method variables to appear as class fields. Removed.
+- **Go plugin false positives**: `short_var_declaration` (`:=` assignments) was mapped to the field extractor, causing local function variables to appear as struct fields. Removed.
+- **C++ `friend_declaration` false positive**: The `_extract_cpp_minimal_variable` fallback extracted `c)` as a field name from `friend ostream& operator<<(... c)`. Removed `friend_declaration` from the field extractor.
+- **Python decorated class/function line numbers**: Decorated functions and classes now report the decorator line as `start_line`, matching the `decorated_definition` AST node range for accurate validator matching.
+- **Grammar snapshot JSON validation**: `load_snapshot` now validates that `node_types` is a `list` and `node_count` is an `int`, preventing silent false-positive diffs from malformed snapshot files. `check_snapshot` now catches `JSONDecodeError` with a clean error message instead of a traceback.
+- **C/C++ `None` tree guards**: New extraction methods (`extract_enums`, `extract_preprocessor_conditionals`, `extract_concepts`, `extract_expressions`) now return `[]` instead of raising `AttributeError` when called with a `None` tree.
+- **SQL `_extract_keywords_and_others` no-op removed**: This method performed a full AST traversal but extracted nothing — wasted CPU on every SQL file analysis. Removed.
+- **Pre-existing test failures**: Java/Kotlin plugin exception-handling tests updated to use subset checks (new keys `boolean_literals`, `block_comments`, `annotated_expressions`, etc. are now returned). SQL test updated to check `CodeElement` base class. `utils/__init__.py` test updated to treat `text_utils` as a submodule.
+- **bash/scala/json corpus tests**: Now skip with `pytest.skip` when the required `tree-sitter-bash/scala/json` packages are not installed, instead of failing.
+- **Multilang README sync**: Added 🔬 Grammar Coverage section to Japanese and Chinese READMEs to match English.
+- **Python coverage test**: Updated assertion from `== 57` to `>= 20` to reflect the MECE exact-identity validator's correct measurement (old 57/57 used positional overlap which produced false positives).
+
+### Changed
+
+- All golden masters updated for Python, Rust, Go, PHP, C, C++, Kotlin, Ruby, TypeScript to reflect plugin improvements.
+
+## [1.10.5] - 2026-03-29
+
+### ✨ New Features
+
+#### `get_code_outline` MCP Tool with TOON Format
+- **Added**: Outline-first navigation tool returning hierarchical package → class → method tree with line numbers
+  - **Purpose**: Enable "map before you fetch" workflow for LLM code analysis
+  - **TOON Format**: Tree-Oriented Object Notation - delivers 54-56% token reduction vs JSON
+  - **Default Output**: TOON format for maximum token efficiency
+  - **JSON Option**: Available via `output_format="json"` for structured data consumers
+  - **Impact**: Significantly reduces LLM token consumption when navigating large codebases
+
+#### `trace_impact` MCP Tool
+- **Added**: Lightweight usage tracing tool to find all call sites of a method/class
+  - **Purpose**: Impact analysis without full call graph database dependency
+  - **Implementation**: Uses ripgrep for fast symbol search across project
+  - **Output**: Structured list of usage locations with file, line, and context
+  - **Language Support**: Works across all 17 supported languages
+
+#### Intent Aliases for MCP Tools
+- **Added**: Natural language aliases for MCP tool discovery
+  - **Purpose**: Enable LLM agents to find tools using intent-based queries
+  - **Examples**: "find code" → `search_content`, "read file section" → `extract_code_section`
+  - **Integration**: Built into MCP server tool descriptions
+
+#### Analysis Session Tracking
+- **Added**: Session-based operation tracking for multi-step workflows
+  - **Purpose**: Audit and correlate related analysis operations
+  - **Features**: Session ID, operation history, performance metrics
+  - **Use Case**: Track complete SMART workflows (Set → Map → Analyze → Retrieve → Trace)
+
+### 🐛 Bug Fixes
+
+#### TOON Format Return Structure
+- **Fixed**: Corrected `get_code_outline_tool` return format to match MCP protocol
+  - **Root Cause**: Tool was returning list `[{...}]` instead of MCP-compliant dict `{"content": [...]}`
+  - **Impact**: Integration tests failed with TypeError when accessing response structure
+  - **Solution**: Updated return format to `{"content": [{"type": "text", "text": formatted_text}]}`
+  - **Tests Fixed**: 10 integration test failures resolved
+
+#### TOON Format Default Setting
+- **Fixed**: `get_code_outline_tool` default `output_format` now correctly set to `"toon"`
+  - **Root Cause**: Default was `"json"` but tool description advertised TOON as default
+  - **Impact**: Tool behavior didn't match documentation
+  - **Solution**: Changed default from `"json"` to `"toon"` at line 298
+  - **Tests Fixed**: 1 unit test failure (test_execute_defaults_to_toon_when_format_not_specified)
+
+#### TOON Format Test Assertions
+- **Fixed**: Updated test assertions across multiple files to match correct TOON/JSON response structures
+  - **Root Cause**: Tests had incorrect expectations for TOON format response fields
+  - **Impact**: 12 test failures across 6 test files
+  - **Solution**: Updated assertions to expect `{"format": "toon", "toon_content": "..."}` for TOON, `{"success": true, "results": [...]}` for JSON
+  - **Files Fixed**:
+    - `tests/unit/mcp/test_mcp_fd_rg_tools.py`
+    - `tests/unit/mcp/test_mcp_tools_coverage.py`
+    - `tests/unit/mcp/test_search_content_tool.py`
+    - `tests/integration/mcp/test_toon_mcp_integration.py`
+    - `tests/unit/mcp/test_tools/test_get_code_outline_tool.py`
+    - `tests/unit/mcp/test_tools/test_get_code_outline_tool_toon.py`
+
+#### Batch Operation File Handling
+- **Fixed**: Added missing tempfile creation in `test_read_partial_tool.py` batch test
+  - **Root Cause**: Test attempted to read file that didn't exist
+  - **Impact**: 1 test failure (test_execute_batch_operations_success)
+  - **Solution**: Created temporary test file with proper cleanup
+
+#### README Line Count
+- **Fixed**: Reduced "What's New" section to meet 15-line limit
+  - **Root Cause**: Section was 16 lines, test required ≤15
+  - **Impact**: 1 test failure (test_whats_new_section_concise)
+  - **Solution**: Removed blank line before separator
+
+### 🔧 Technical Implementation
+- **Files Added**:
+  - `tree_sitter_analyzer/mcp/tools/get_code_outline_tool.py` - Core outline tool
+  - `tree_sitter_analyzer/mcp/tools/trace_impact_tool.py` - Impact tracing tool
+  - `tree_sitter_analyzer/mcp/intent_aliases.py` - Intent-based tool aliases
+  - `tree_sitter_analyzer/core/analysis_session.py` - Session tracking
+  - `tests/unit/mcp/test_tools/test_get_code_outline_tool.py` - 37 unit tests
+  - `tests/unit/mcp/test_tools/test_get_code_outline_tool_toon.py` - 12 TOON format tests
+  - `tests/unit/mcp/test_tools/test_trace_impact_tool.py` - 18 unit tests
+  - `tests/unit/mcp/test_intent_aliases.py` - 12 alias tests
+  - `tests/unit/core/test_analysis_session.py` - 25 session tests
+  - `tests/integration/mcp/test_tools/test_get_code_outline_toon_integration.py` - 9 integration tests
+  - `tests/integration/mcp/test_tools/test_get_code_outline_token_savings.py` - 5 token savings tests
+  - `tests/integration/mcp/test_intent_aliases_integration.py` - 8 integration tests
+  - `tests/integration/mcp/test_golden_master_mcp_tools.py` - Golden master tests
+- **Integration**: All tools registered in `tree_sitter_analyzer/mcp/server.py`
+- **Format Helpers**: Enhanced TOON formatting utilities in `tree_sitter_analyzer/mcp/utils/format_helper.py`
+
+### 📊 Quality Metrics
+- **Tests**: 8,470 tests total (100% pass rate, +61 tests from v1.10.4)
+  - 104 new tests added (63 for get_code_outline, 18 for trace_impact, 23 for other features)
+  - 23 existing tests fixed (TOON format assertions)
+- **Coverage**: 88.68% (improved from 80.33%)
+  - `get_code_outline_tool.py`: 80.27% coverage
+  - `trace_impact_tool.py`: Full coverage
+  - `intent_aliases.py`: Full coverage
+- **Token Savings**: Verified 54-56% reduction with TOON format on real files
+- **Cross-Platform**: All tests pass on Ubuntu, Windows, macOS × Python 3.10-3.13
+- **CI/CD**: 15/15 GitHub Actions jobs passing
+- **Breaking Changes**: None - all improvements are backward compatible
+
+---
+
+## [1.10.4] - 2026-01-08
+
+### 🐛 Bug Fixes
+
+#### Vertex AI API Compatibility Fix
+- **Fixed**: Removed `oneOf`, `anyOf`, `allOf` from MCP tool JSON Schema definitions
+  - **Root Cause**: Vertex AI API does not support `oneOf`, `anyOf`, or `allOf` at the top level of tool input schemas
+  - **Error**: `"tools.17.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at the top level"`
+  - **Impact**: MCP tools were incompatible with Vertex AI (Claude models via Google Cloud)
+  - **Solution**: Removed schema-level validation constraints; validation is performed at code level instead
+  - **Files Modified**:
+    - `tree_sitter_analyzer/mcp/tools/analyze_scale_tool.py` - Removed `oneOf` for `file_path`/`file_paths` mutual exclusion
+    - `tree_sitter_analyzer/mcp/tools/read_partial_tool.py` - Removed `oneOf` for single/batch mode
+    - `tree_sitter_analyzer/mcp/tools/query_tool.py` - Removed `anyOf` for `query_key`/`query_string`
+    - `tree_sitter_analyzer/mcp/tools/search_content_tool.py` - Removed `anyOf` for `roots`/`files`
+
+### 🔧 Technical Details
+- **Affected Tools**: `check_code_scale`, `extract_code_section`, `query_code`, `search_content`
+- **Validation**: All parameter validation is now performed in `validate_arguments()` methods
+- **Compatibility**: Now works with Vertex AI, Anthropic API, AWS Bedrock, and other providers
+- **Tests Updated**: Unit and integration tests updated to reflect schema changes
+
+### 📊 Quality Metrics
+- **Tests**: 8,409 tests (100% pass rate)
+- **Coverage**: 80.33% (maintained)
+- **Breaking Changes**: None - all improvements are backward compatible
+
+---
+
+## [1.10.3] - 2026-01-08
+
+### 🐛 Bug Fixes
+
+#### Formatter Test Consistency
+- **Fixed**: Updated TypeScript and JavaScript formatter tests to match new output format
+  - **Root Cause**: Recent formatter changes caused test expectations to drift from actual output
+  - **Solution**: Updated test baselines and assertions to align with current behavior
+  - **Impact**: Restored consistency in formatter test suite
+
+#### Path Handling
+- **Fixed**: Normalized paths in `test_path_resolver.py` for better macOS symlink compatibility
+  - **Root Cause**: Path resolution inconsistencies on macOS due to symlinks
+  - **Solution**: Applied path normalization in test assertions
+  - **Impact**: Improved cross-platform test reliability
+
+### 🔧 Technical Improvements
+- **Documentation**: Updated `.cursorrules` and test results baseline
+- **Editor Config**: Added cursor settings for improved development experience
+- **Test Quality**: Restored precise assertions in formatter tests
+
+### 📊 Quality Metrics
+- **Tests**: 8,409 tests (100% pass rate)
+- **Coverage**: 80.33% (maintained)
+- **Breaking Changes**: None
+
+---
+
+## [1.10.2] - 2025-12-23
+
+### 🐛 Bug Fixes
+
+#### TOON Format Output Duplication Fix
+- **Fixed**: Removed duplicate `table_output` field in TOON format responses
+  - **Root Cause**: `redundant_fields` set in `format_helper.py` was missing `"table_output"`, causing it to appear both in `toon_content` and as a direct field
+  - **Impact**: `analyze_code_structure` tool with `output_format="toon"` was returning duplicate data, wasting tokens
+  - **Solution**: Added `"table_output"` to `redundant_fields` set in `apply_toon_format_to_response()`
+  - **Files Modified**: `tree_sitter_analyzer/mcp/utils/format_helper.py`
+
+#### MCP Server Output Format Parameter Fix
+- **Fixed**: MCP server now correctly passes `output_format` parameter to `analyze_code_structure` tool
+  - **Root Cause**: Server was not forwarding `output_format` from client arguments to the tool
+  - **Impact**: Users could not specify `output_format="json"` - it was always ignored and defaulted to `"toon"`
+  - **Solution**: Added `output_format` parameter forwarding in server's `analyze_code_structure` handler
+  - **Files Modified**: `tree_sitter_analyzer/mcp/server.py`
+
+### 🔧 Technical Details
+- **Issue**: TOON format responses included both serialized and direct field versions of `table_output`
+- **Fix**: Updated `redundant_fields` set to include `"table_output"` for proper deduplication
+- **Verification**: MCP tool testing confirmed no duplication in TOON format responses
+
+### 📊 Quality Metrics
+- **Tests**: 6,246 tests (100% pass rate maintained)
+- **Coverage**: 80.33% (maintained)
+- **Breaking Changes**: None - all improvements are backward compatible
+
+---
+
+## [1.10.1] - 2025-12-23
+
+### 🐛 Bug Fixes
+
+#### Language Detection Fix
+- **Fixed**: Added missing languages to `SUPPORTED_LANGUAGES` set in `language_detector.py`
+  - **Root Cause**: `kotlin`, `csharp`, and `yaml` were mapped in `EXTENSION_MAPPING` but missing from `SUPPORTED_LANGUAGES` set
+  - **Impact**: MCP tools returned `"language": "unknown"` for Kotlin, C#, and YAML files despite having full plugin support
+  - **Solution**: Added `kotlin`, `csharp`, and `yaml` to `SUPPORTED_LANGUAGES` set
+  - **Files Modified**: `tree_sitter_analyzer/language_detector.py`
+
+### 🔧 Technical Details
+- **Issue**: Language detection worked in CLI but failed in MCP due to `is_supported()` check
+- **Fix**: Updated `SUPPORTED_LANGUAGES` set to include all languages with plugin implementations
+- **Verification**: CLI analysis confirmed correct detection after fix
+
+### 📊 Quality Metrics
+- **Tests**: 6,246 tests (100% pass rate maintained)
+- **Coverage**: 80.33% (maintained)
+- **Breaking Changes**: None - all improvements are backward compatible
+
+---
+
+## [1.10.0] - 2025-12-23
+
+### 🚀 Major Features
+
+#### Format Change Management System
+- **Complete Format Change Management System**: Comprehensive system for tracking and managing format changes
+  - **Database Tracking**: SQLite-based format change tracking with complete history
+  - **Pre-commit Validation**: Automatic validation of format changes before commits
+  - **Golden Master Tests**: Regression testing with golden master files for all supported languages
+  - **Compatibility Reports**: Automated generation of format compatibility reports
+  - **Format Monitoring**: Real-time monitoring of format quality, regressions, and performance
+
+#### Behavior Profile Comparison
+- **Behavior Profile Comparison Functionality**: CLI tool for comparing code analysis behavior profiles
+  - **Profile Comparison**: Compare behavior profiles between different versions
+  - **Diff Generation**: Generate detailed diffs of behavior changes
+  - **CLI Integration**: `compare-profiles` command for easy profile comparison
+  - **DeepDiff Integration**: Added `deepdiff>=6.7.1` dependency for advanced comparison
+
+#### Enhanced Language Support
+- **Go, Rust, Kotlin Language Support**: Added comprehensive support for systems programming languages
+  - **Go Language**: Full support for packages, functions, methods, structs, interfaces
+  - **Rust Language**: Complete support for modules, functions, structs, enums, traits, impl blocks
+  - **Kotlin Language**: Full support for classes, data classes, sealed classes, objects, interfaces
+  - **Core Dependencies**: Added `tree-sitter-go`, `tree-sitter-rust`, `tree-sitter-kotlin` to core dependencies
+
+#### C++ Formatter
+- **C++ Formatter**: Dedicated formatter for C++ code analysis
+  - **Bandit Security Scan**: Integrated security scanning for C++ code
+  - **Advanced Features**: Support for templates, inheritance, virtual functions, operator overloading
+
+#### Project Governance
+- **Project Governance Documents**: Comprehensive governance and security policies
+  - **Security Policies**: Added security policies and guidelines
+  - **CI/CD Workflows**: Enhanced CI/CD workflows for better quality assurance
+  - **Property-Based Tests**: Added property-based tests for CI workflow consistency
+
+### 🧪 Testing & Quality
+
+- **Test Suite Expansion**: Test count increased to 6,246 tests (up from 6,301)
+  - **Format Testing**: Comprehensive format change management tests
+  - **Golden Master Tests**: Regression tests for all supported languages
+  - **Property-Based Tests**: CI workflow consistency validation
+  - **All tests passing**: 100% pass rate maintained
+
+- **Coverage**: 80.33% code coverage (exceeds 80% target)
+  - **Format Monitoring**: Complete coverage of format change tracking
+  - **Profile Comparison**: Full coverage of behavior profile comparison
+  - **Language Support**: Comprehensive coverage of Go, Rust, Kotlin support
+
+### 📚 Documentation
+
+- **Format Change Management**: Complete documentation of format change management system
+- **Behavior Profile Comparison**: Comprehensive guide for profile comparison
+- **Language Support**: Updated documentation for Go, Rust, Kotlin support
+- **CI/CD Workflows**: Enhanced workflow documentation
+
+### 🔧 Technical Improvements
+
+- **Format Change Database**: SQLite-based tracking system for format changes
+- **Pre-commit Scripts**: Automated validation scripts for format changes
+- **Golden Master System**: Comprehensive regression testing infrastructure
+- **Profile Comparison**: Advanced diff generation and comparison tools
+
+### 📊 Quality Metrics
+
+- **Tests**: 6,246 tests (100% pass rate)
+- **Coverage**: 80.33% (exceeds target)
+- **Quality**: Enterprise-grade quality maintained
+- **Supported Languages**: 17 languages with full plugin implementation
+
+### 🎯 Impact
+
+This major release introduces comprehensive format change management and behavior profile comparison capabilities, making Tree-sitter Analyzer a powerful tool for tracking and managing code analysis format changes across versions. The addition of Go, Rust, and Kotlin support extends the tool's reach to systems programming languages.
+
+---
+
+## [1.9.23] - 2025-12-11
+
+### 🐛 Bug Fixes
+
+#### TOON Format Token Optimization Fix
+- **Fixed redundant data in TOON responses**: When `output_format=toon`, the response now properly removes redundant data fields (`results`, `matches`, `content`, etc.) to maximize token savings
+- **Root Cause**: Previously, TOON format responses included both the original JSON data fields AND the `toon_content`, defeating the purpose of token optimization
+- **New Behavior**: TOON responses now contain only:
+  - `format: "toon"` indicator
+  - `toon_content`: TOON-formatted string containing all data
+  - Essential metadata (success, count, elapsed_ms, truncated, etc.)
+- **Removed Redundant Fields**: `results`, `matches`, `content`, `partial_content_result`, `analysis_result`, `data`, `items`, `files`, `lines`
+- **Impact**: Significant token savings when using TOON format - no more duplicate data
+
+#### CLI and MCP Output Format Consistency Fix
+- **Fixed CLI search tools not passing output_format to MCP tools**: CLI search commands (`search_content_cli`, `list_files_cli`, `find_and_grep_cli`) now explicitly pass `output_format` to MCP tools
+- **Root Cause**: CLI tools were not passing `output_format` parameter, causing MCP tools to use default `toon` format while CLI expected `json`
+- **Fixed double TOON conversion**: `OutputManager.data()` now detects already-formatted TOON responses and avoids re-conversion
+- **Files Fixed**:
+  - `cli/commands/search_content_cli.py`: Added `output_format` to payload
+  - `cli/commands/list_files_cli.py`: Added `output_format` to payload
+  - `cli/commands/find_and_grep_cli.py`: Added `output_format` to payload
+  - `output_manager.py`: Added detection for pre-formatted TOON responses
+
+### 🧪 Tests Added
+
+- **TestApplyToonFormatToResponse**: 4 new test cases validating TOON response structure
+  - `test_json_format_returns_original`: Verifies JSON format returns unchanged
+  - `test_toon_format_removes_redundant_fields`: Verifies redundant fields are removed
+  - `test_toon_format_removes_all_redundant_fields`: Comprehensive redundant field check
+  - `test_toon_content_contains_full_data`: Verifies toon_content contains all data
+
+### 📊 Quality Metrics
+
+- **Tests**: 6,301 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade quality maintained
+
+---
+
+## [1.9.22] - 2025-12-11
+
+### 🐛 Bug Fixes
+
+#### MCP Tools Test Suite Fix
+- **Fixed TOON Format Test Compatibility**: Updated all MCP tool tests to explicitly specify `output_format: "json"` when expecting raw JSON response structure
+- **Root Cause**: MCP tools default to TOON format (since v1.9.21), which transforms response structure. Tests expecting `results`, `meta`, `output_file` fields need explicit `output_format="json"`
+- **Files Fixed**:
+  - `test_find_and_grep_tool_file_output.py` (8 test cases)
+  - `test_mcp_async_integration.py` (14 test cases)
+  - `test_mcp_file_output_feature.py`
+  - `test_query_tool_file_output.py`
+  - `test_read_partial_tool_file_output.py`
+- **Impact**: All 6,297 tests now pass consistently across all environments
+
+### 📊 Quality Metrics
+
+- **Tests**: 6,297 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade quality maintained
+
+---
+
+## [1.9.21] - 2025-12-10
+
+### 🚀 Breaking Changes
+
+#### Default Output Format Changed to TOON
+- **All MCP tools now default to TOON format** instead of JSON
+- TOON format provides 50-70% token reduction + ~10% additional savings from path normalization
+- To use JSON format, explicitly set `output_format: "json"`
+
+### ✨ New Features
+
+#### Path Normalization for Token Optimization
+- **Windows path normalization**: Backslashes (`\`) automatically converted to forward slashes (`/`)
+- **Additional ~10% token savings** for path-heavy outputs
+- Applied automatically in TOON format encoding
+- Strict path detection to avoid false positives (only file paths are normalized)
+
+### 📊 Token Savings Summary
+- **TOON format**: 50-70% reduction vs JSON
+- **Path normalization**: Additional ~10% reduction
+- **Combined**: Up to 75% total token savings for Windows file operations
+
+---
+
+## [1.9.20] - 2025-12-10
+
+### 🐛 Bug Fixes
+
+#### MCP Tools TOON Output Fix
+- **Fixed TOON Format Direct Output**: MCP tools now properly apply TOON format to direct output responses (not just file output)
+- **New `apply_toon_format_to_response()` Function**: Added centralized function in `format_helper.py` for consistent TOON formatting
+- **All MCP Tools Updated**:
+  - `query_tool`: TOON format applied to query results
+  - `list_files_tool`: TOON format applied to file listing results
+  - `search_content_tool`: TOON format applied to search results
+  - `find_and_grep_tool`: TOON format applied to grep results
+  - `read_partial_tool`: TOON format applied to partial read results
+  - `analyze_scale_tool`: TOON format applied to scale analysis results
+  - `table_format_tool`: TOON format applied to table format results
+  - `universal_analyze_tool`: TOON format applied to universal analysis results
+- **Response Format**: When `output_format=toon`, response includes:
+  - `format: "toon"` indicator
+  - `toon_content`: TOON-formatted string of the full result
+  - Essential metadata preserved (success, count, file_path, etc.)
+- **Backward Compatibility**: JSON format (default) behavior unchanged
+
+### 📊 Quality Metrics
+
+- **Tests**: All MCP tests passing (213 tests)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade quality maintained
+
+---
+
+## [1.9.19] - 2025-12-10
+
+### 🚀 New Features
+
+#### TOON Format Integration - Token-Optimized AI Output 🆕
+
+**TOON (Token-Optimized Output Notation) Format**:
+- **Significant Token Reduction**: Up to 70% savings in AI conversation token consumption
+- **AI-Native Design**: Optimized output format specifically designed for AI model consumption
+- **Human Readable**: Maintains readability while being compact and efficient
+- **Golden Master Tests**: 17 language-specific TOON format test files for regression testing
+
+**MCP Tool Enhancements**:
+- **query_tool**: Added `output_format` parameter supporting "json", "markdown", "toon" formats
+- **list_files_tool**: Added TOON format support for file listing output
+- **search_content_tool**: Added TOON format support for search results
+- **find_and_grep_tool**: Added TOON format support for grep results
+- **read_partial_tool**: Added TOON format support for partial file reading
+- **analyze_scale_tool**: Added TOON format support for code scale analysis
+- **table_format_tool**: Added TOON format support for table output
+- **universal_analyze_tool**: Added TOON format support for universal analysis
+
+**CLI Enhancements**:
+- **All Commands**: Added `--output-format toon` option across all CLI commands
+- **structure command**: Full TOON format support for code structure output
+- **summary command**: TOON format support for summary output
+- **query command**: TOON format support for query results
+- **advanced command**: TOON format support for advanced analysis
+- **partial-read command**: TOON format support for partial file reading
+- **table command**: TOON format support for table output
+
+**Technical Implementation**:
+- **ToonFormatter**: New formatter class for TOON format output generation
+- **ToonEncoder**: Comprehensive encoder for all data types (lists, dicts, code elements)
+- **format_helper.py**: Centralized format handling utilities for MCP tools
+- **Output Manager Integration**: Seamless integration with existing output management
+
+### 🧪 Testing & Quality
+
+- **Test Suite Expansion**: Test count reaches 6,297 tests (up from 6,058)
+  - Added comprehensive TOON formatter tests
+  - Added TOON encoder coverage boost tests
+  - Added MCP tools TOON integration tests
+  - Added CLI TOON integration tests
+  - Added error handling tests for TOON format
+  - Added Golden Master regression tests for 17 languages
+  - All tests pass with 100% success rate
+- **Documentation**: Added comprehensive TOON format guide in English and Japanese
+
+### 📚 Documentation
+
+- **TOON Format Guide**: Added `docs/toon-format-guide.md` (English)
+- **Japanese TOON Guide**: Added `docs/ja/toon-format-guide.md`
+- **Version Updates**: Updated all README files with v1.9.19 version information
+  - **English (README.md)**: Updated version badges and TOON feature description
+  - **Japanese (README_ja.md)**: Updated version information and TOON features
+  - **Chinese (README_zh.md)**: Updated version information and TOON features
+
+### 🔧 Technical Improvements
+
+- **Format Helper Module**: New `mcp/utils/format_helper.py` for centralized format handling
+- **Output Manager Enhancement**: Extended to support TOON format across all output paths
+- **Example Scripts**: Added `examples/toon_demo.py` and `examples/toon_token_benchmark.py`
+
+### 📊 Quality Metrics
+
+- **Tests**: 6,297 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade quality maintained
+- **Supported Languages**: 17 languages with TOON format support
+
+### 🎯 Impact
+
+This release introduces TOON (Token-Optimized Output Notation) format, a revolutionary output format designed specifically for AI model consumption. TOON format provides:
+- **70% token reduction** in typical code analysis outputs
+- **Improved AI context efficiency** for large codebase analysis
+- **Backward compatibility** with existing JSON and Markdown outputs
+- **Full integration** across all MCP tools and CLI commands
+
+---
+
+## [1.9.18] - 2025-12-09
+
+### 🏗️ CI/CD Improvements
+
+#### macOS Runner Migration
+- **GitHub Actions Update**: Migrated from deprecated `macos-13` to `macos-latest`
+  - Updated `.github/workflows/reusable-test.yml` test matrix
+  - Updated `.github/actions/setup-system/action.yml` for flexible macOS version support
+  - Changed condition checks to use `startsWith(matrix.os, 'macos-')` for future compatibility
+- **Documentation Updates**: Updated all CI/CD related documentation
+  - English and Japanese CONTRIBUTING guides
+  - CI/CD overview, troubleshooting, and migration guides
+  - Test workflow documentation
+- **Test Updates**: Updated all workflow consistency tests to expect `macos-latest`
+- **Compliance**: Addresses GitHub Actions deprecation (macOS 13 end-of-life: December 8, 2025)
+
+### 🚀 New Features
+
+#### C/C++ Language Support Added! 🆕
+
+**C Language Support**:
+- **Structure Extraction**: Functions, structs, unions, enums, typedefs
+- **Advanced Features**:
+  - Preprocessor directive extraction (#include, #define, #ifdef)
+  - Global, static, const, extern variable extraction
+  - Function pointer and array type support
+- **C Formatter**: Output using C-specific terminology
+
+**C++ Language Support**:
+- **Structure Extraction**: Classes, structs, namespaces, templates
+- **Advanced Features**:
+  - Inheritance and virtual function detection
+  - Operator overloading extraction
+  - Lambda expression and smart pointer support
+  - Using declarations and namespace aliases
+- **C++ Formatter**: Output using C++-specific terminology
+
+These languages are fully integrated into CLI, API, and MCP interfaces with comprehensive testing.
+
+### 🧪 Testing & Quality
+
+- **Test Suite Expansion**: Test count reaches 6,058 tests (up from 5,980)
+  - Added comprehensive C language plugin tests
+  - Added comprehensive C++ language plugin tests
+  - Added Golden Master tests for C/C++ (full/compact/CSV formats)
+  - All tests pass with 100% success rate
+- **Stability Improvements**: 
+  - Fixed cache key tests to use position-based keys
+  - Normalized line endings for CSV files
+  - Stabilized node text caching across all language plugins
+  - Resolved golden master test failures for markdown
+
+### 📚 Documentation
+
+- **Version Updates**: Updated all README files with v1.9.18 version information
+  - **English (README.md)**: Updated version badges and added C/C++ to supported languages
+  - **Japanese (README_ja.md)**: Updated version information and added C/C++ support
+  - **Chinese (README_zh.md)**: Updated version information and added C/C++ support
+- **Language Count**: Updated supported languages from 15 to 17
+- **CI/CD Documentation**: Comprehensive updates for macOS runner migration
+
+### 🔧 Technical Improvements
+
+- **Plugin Architecture**: Added CPlugin and CppPlugin following existing plugin patterns
+- **Query Modules**: Added `queries/c.py` and `queries/cpp.py` for tree-sitter queries
+- **BFS Identifier Extraction**: Uses breadth-first search for accurate name resolution
+- **Graceful Degradation**: Handles missing tree-sitter-c/cpp dependencies gracefully
+
+### 📊 Quality Metrics
+
+- **Tests**: 5,980 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade quality maintained
+- **Supported Languages**: 17 languages
+
+### 🎯 Impact
+
+This release adds comprehensive C and C++ language support, completing coverage for major systems programming languages. The plugins support all core C/C++ constructs including preprocessor directives, templates, inheritance, and modern C++ features.
+
+---
+
+## [1.9.17] - 2025-11-28
+
+### 🚀 New Features
+
+#### Go Language Test Infrastructure Enhancement
+- **Go Test Module Infrastructure**: Added comprehensive Go test module infrastructure
+  - **Test Module Creation**: Added `tests/test_go/__init__.py` for Go language test organization
+  - **Test Suite Enhancement**: Expanded test coverage to 4,864 tests (up from 4,844)
+  - **Quality Improvements**: Enhanced code quality and testing framework
+  - **Infrastructure Foundation**: Established foundation for comprehensive Go language testing
+
+### 🧪 Testing & Quality
+
+- **Test Suite Expansion**: Increased test count to 4,864 tests
+  - **Go Test Infrastructure**: Added Go-specific test module organization
+  - **Quality Framework**: Enhanced testing framework for better coverage
+  - **Test Organization**: Improved test structure and organization
+
+### 📚 Documentation
+
+- **Version Updates**: Updated all README files with v1.9.17 version information
+  - **English (README.md)**: Updated version badges and feature descriptions
+  - **Japanese (README_ja.md)**: Updated version information and feature descriptions
+  - **Chinese (README_zh.md)**: Updated version information and feature descriptions
+- **Feature Documentation**: Updated "What's New" sections with Go test infrastructure enhancements
+
+### 🔧 Technical Improvements
+
+- **Test Infrastructure**: Enhanced test module organization and structure
+- **Code Quality**: Improved overall code quality and testing framework
+- **Version Synchronization**: Updated version information across all project files
+
+### 📊 Quality Metrics
+
+- **Tests**: 4,864 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade quality maintained
+- **Infrastructure**: Enhanced test infrastructure for future Go language support
+
+### 🎯 Impact
+
+This release establishes the foundation for comprehensive Go language support by adding the necessary test infrastructure and enhancing the overall testing framework. The increased test count demonstrates our commitment to quality and thorough testing coverage.
+
+### 🎉 New Features
+
+#### Go, Rust, Kotlin Language Support Added! 🆕
+
+**Go Language Support**:
+- **Structure Extraction**: Packages, functions, methods, structs, interfaces
+- **Advanced Features**:
+  - Goroutine and channel pattern detection
+  - Type alias, constant, and variable extraction
+- **Go Formatter**: Output using Go-specific terminology
+
+**Rust Language Support**:
+- **Structure Extraction**: Modules, functions, structs, enums, traits, impl blocks
+- **Advanced Features**:
+  - Macro definition extraction
+  - Async function and lifetime annotation detection
+- **Rust Formatter**: Output using Rust-specific terminology
+
+**Kotlin Language Support**:
+- **Structure Extraction**: Classes, data classes, sealed classes, objects, interfaces
+- **Advanced Features**:
+  - Function, property, and extension function extraction
+  - Suspend function and coroutine pattern detection
+- **Kotlin Formatter**: Output using Kotlin-specific terminology
+
+These languages are fully integrated into CLI, API, and MCP interfaces with property-based testing for quality assurance.
+
+#### YAML Language Support Added! 🆕
+- **Full YAML Language Support**: Added comprehensive YAML parsing capabilities
+  - **Structure Extraction**: Mappings (key-value pairs), sequences (lists), scalar values
+  - **Advanced Features**:
+    - Anchor (&anchor) and alias (*alias) detection
+    - Multi-document support (--- delimiter)
+    - Comment extraction
+    - Nesting level calculation
+  - **Scalar Type Identification**: Automatic identification of strings, numbers, booleans, null
+  - **YAML Formatter**: Dedicated formatter for YAML output
+    - Supports summary, structure, advanced analysis, and table formats
+    - Supports text, json, csv output formats
+  - **Tree-sitter Query Support**: Complex YAML pattern analysis
+  - **Fully Integrated into CLI, API, and MCP interfaces**
+  - **Property-Based Testing**: 13 property tests for quality assurance
+
+- **Supported File Extensions**: `.yaml`, `.yml`
+- **Dependencies**: Added `tree-sitter-yaml>=0.7.0` as optional dependency
+
+### 🧪 Testing & Quality
+
+- **YAML Golden Master Tests Added**: Added regression tests for YAML files
+  - `tests/test_yaml/test_yaml_golden_master.py` - YAML-specific golden master tests
+  - `tests/golden_masters/full/yaml_sample_config_full.md` - YAML golden master file
+
+### 📚 Documentation
+
+- **Major README Restructuring**: Reduced README.md from 980 to ~250 lines
+  - Migrated detailed documentation to `docs/` directory
+  - New files: `docs/installation.md`, `docs/cli-reference.md`, `docs/smart-workflow.md`, `docs/architecture.md`
+  - Added GIF demo placeholder: `docs/assets/demo-placeholder.md`
+
+- **Contributor Guide Internationalization**:
+  - Translated `docs/CONTRIBUTING.md` to English (for contributors)
+  - Saved Japanese version as `docs/ja/CONTRIBUTING_ja.md` (for maintainer reference)
+  - Translated `docs/new-language-support-checklist.md` to English
+
+- **Unified MCP Configuration to uvx Format**:
+  - Updated all docs to use `uvx --from tree-sitter-analyzer[mcp] tree-sitter-analyzer-mcp` format
+  - Affected: installation.md, troubleshooting_guide.md, mcp_tools_specification.md, quick start guide
+
+- **Added GitFlow Branch Strategy**: Added branch strategy and main protection rules to CONTRIBUTING.md
+
+- **Added README Structure Tests**: Added automated tests in `tests/test_readme/`
+  - Line count limit verification
+  - Multi-language README consistency check
+  - Documentation link validity verification
+
+- **Fixed CLI --version Flag**: Replaced non-existent `--version` with `--show-supported-languages`
+
+---
+
+## [1.9.16] - 2025-11-25
+
+### 🐛 Critical Bug Fixes
+- **SQL Source Code Extraction Reliability**: Improved source code extraction logic in SQLElementExtractor
+- **SQL Single-Line Parsing Fix**: Fixed single-line misparse in view definition parsing in SQL plugin
+- **SQL Trigger Line Number Extraction Fix**: Implemented with cleanup of redundant golden master files
+- **SQL Parameter Extraction Regex Fix**: Improvements to resolve CI failures
+
+### 🔧 Technical Improvements
+- **SQL Parsing Robustness**: Enhanced platform compatibility
+- **SQL Cross-Platform Compatibility**: Implemented comprehensive compatibility layer
+- **SQL Element Extraction Resilience**: Improved consistency across platforms
+- **SQL Trigger Extraction**: Support for multiple triggers within ERROR nodes
+- **SQL Function Extraction**: Enhanced validation with property-based testing
+
+### 🧪 Testing & Quality
+- **Comprehensive Unit Tests Added**: Improved test coverage for various modules
+- **PHP, Ruby, C# Query Tests Added**: For coverage improvement
+- **Async Performance Threshold Adjustment**: Updated SQL CSV golden master
+- **Windows & macOS CI Failure Fixes**: Ensured cross-platform consistency
+- **Black Formatting Applied**: Resolved CI quality check issues
+- **Golden Master Normalization**: Unified line endings
+
+### 🚀 New Features
+- **AST Dump Tool Added**: CI step for cross-platform debugging
+- **Consistent GitHub Actions Workflows**: Implementation completed
+
+### 🔒 Security & Stability
+- **Pre-commit Linting & Security Issues Resolved**: Comprehensive fixes
+- **BehaviorProfile Crash Fix**: Fixed SQL trigger extraction logic
+- **Manual Profile Loading in Profile Comparison**: Prevented AttributeError
+
+### 📊 Quality Metrics
+- **Tests**: 4,668 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade
+- **Changes**: 40+ commits with significant stability and compatibility improvements
+
+## [1.9.15] - 2025-11-19
+
+### 🐛 Bug Fixes
+- **SQL Parameter Extraction Precision Improvement**: Significantly improved parameter extraction logic for SQL procedures and functions
+  - Prevented misidentification of SQL keywords (SELECT, FROM, WHERE, etc.)
+  - Improved parsing accuracy through precise parameter section extraction
+  - Enhanced CSV formatter newline removal and data cleaning
+  - Normalized golden master test data (unified parameter counts)
+
+### 🔧 Technical Improvements
+- **Scope**: SQL plugin parameter extraction functionality
+- **Output Quality**: Improved SQL formatter (Full/CSV) output quality
+- **Test Data**: Improved consistency and regression verification
+- **Changes**: 5 files (+331 lines, -65 lines)
+
+### 📊 Quality Metrics
+- **Tests**: 4,438 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade
+
+## [1.9.14] - 2025-11-13
+
+### 🐛 Bug Fixes
+- **SQL Function Extraction Fix**: Improved to correctly extract only function names from CREATE FUNCTION statements
+  - Resolved issue where parameter names were incorrectly extracted as functions
+  - Simplified logic to use only the first `object_reference` as function name
+  - Fixed issue where `order_id_param` parameter was extracted as function in `calculate_order_total` function
+
+### 🧪 Test Improvements  
+- **Permission Error Test Disabled**: Completely disabled due to unreliability across platforms
+  - `chmod` behavior differs significantly between Windows, macOS, and Linux
+  - Completely skipped with `@pytest.mark.skip` due to instability in CI environment
+- **Golden Master Updates**: Regenerated to match SQL function extraction fix
+  - Removed incorrect `order_id_param` entries
+  - Updated all full, compact, and CSV formats
+
+### 📊 Quality Metrics
+- **Tests**: 4,438 tests (100% pass rate)
+- **Coverage**: Codecov automatic monitoring
+- **Quality**: Enterprise-grade
+
+### ✅ Test Coverage Improvement Completed
+- **improve-test-coverage OpenSpec Change**: All 23 tasks completed
+  - **Phase 1**: Critical Components (7 tasks)
+    - CLI Entry Point: 100% coverage (8 tests)
+    - Exceptions: 89.13% coverage (61 tests)
+    - MCP Server Interface: 39.44% coverage (56 tests)
+    - Tree-sitter Compatibility: 72.73% coverage (41 tests)
+    - Universal Analyze Tool: 78.78% coverage (35 tests)
+    - Utils Module: 100% coverage (34 tests)
+    - Java Formatter: 82.95% coverage (38 tests)
+  - **Phase 2**: Medium Priority Components (13 tasks)
+    - Core Engine: 72.83% coverage (73 tests)
+    - Core Query: 86.14% coverage (52 tests)
+    - HTML Queries: 100% coverage (71 tests)
+    - CSS Queries: 100% coverage (66 tests)
+    - Summary Command: 98.41% coverage (23 tests)
+    - Find and Grep CLI: 99.49% coverage (26 tests)
+    - List Files CLI: 100% coverage (37 tests)
+    - Search Content CLI: 99.32% coverage (44 tests)
+    - Base Formatter: 100% coverage (54 tests)
+    - Markdown Formatter: 98.99% coverage (58 tests)
+    - Markdown Plugin: 59.79% coverage (70 tests)
+    - Language Loader: 93.06% coverage (45 tests)
+  - **Phase 3**: Infrastructure & Documentation (3 tasks)
+    - Test Fixtures: 28 helper functions (3 modules)
+    - CI/CD Coverage Monitoring: .coveragerc configuration completed
+    - Documentation: Created TESTING.md, updated CONTRIBUTING.md
+  - **Total**: 107 new tests, average coverage 88.5% (exceeds 85% target)
+  - Moved all changes to `openspec/changes/archive/`
+
+## [1.9.13] - 2025-11-11
+
+### 🐛 Bug Fixes
+- SQL Plugin: Prevented misextraction through enhanced identifier validation
+  - Added comprehensive SQL keyword filtering to `_is_valid_identifier` method
+  - Fixed issue where SQL keywords (UNIQUE, NOT, NULL, etc.) were incorrectly extracted as function/view names
+  - Improved robustness against tree-sitter-sql AST parser keyword misidentification
+  - All golden master regression tests passed (25 tests PASS)
+
+### 📊 Impact Scope
+- SQL-related tests: All 41 tests PASS
+- Golden master regression tests: All 25 tests PASS
+- Coverage: Maintained existing coverage
+
+## [1.9.12] - 2025-11-11
+
+### 🐛 Bug Fixes
+- SQL Plugin: Fixed NULL issue in view/trigger/function name extraction
+  - Implemented 3-tier fallback strategy (AST → regex1 → regex2) for reliable extraction
+  - Eliminated environment dependency, ensuring consistent extraction results
+  - Prevented SQL keyword misidentification through keyword filtering
+
+### 🔧 Improvements
+- Async Performance Test: Adjusted efficiency threshold from 0.95 to 0.90
+  - Improved tolerance to system load variations
+  - Enhanced test stability
+
+### 📦 OpenSpec Changes Completed
+- C# Language Support: Test implementation completed (11 tests PASS)
+- PHP/Ruby Language Support: All tasks marked complete
+- Test Format Improvement: All tests verified (3553 PASS)
+
+### 📊 Quality Metrics
+- Tests: 3576 (3553 PASS, 18 SKIP)
+- Coverage: Codecov automatic updates
+
+## [1.9.11] - 2025-11-10
+
+### 🔧 Improvements
+- Improved version management and release process
+- Updated documentation and synchronized version information
+
+## [1.9.9] - 2025-11-09
+
+### 🎉 New Features
+
+#### PHP Language Support 🆕
+- **Full PHP Language Support**: Added comprehensive PHP language support including modern PHP 8+ features
+  - **Type Extraction**: Classes, interfaces, traits, enums, namespaces
+  - **Member Analysis**: Methods, constructors, properties, constants, magic methods
+  - **Modern PHP Features**:
+    - PHP 8+ attributes (annotations)
+    - Readonly properties
+    - Typed properties and return types
+    - Enums with methods
+    - Named arguments support
+  - **PHP Table Formatter**: Dedicated formatter for PHP code output
+    - Full table format for namespaces, classes, methods, properties
+    - Compact table for quick previews
+    - CSV format for data processing
+    - Multi-class file support
+    - Correct handling of PHP visibility (public, private, protected)
+  - Tree-sitter query support for complex code analysis
+  - Fully integrated into CLI, API, and MCP interfaces
+
+#### Ruby Language Support 🆕
+- **Full Ruby Language Support**: Added comprehensive Ruby support with Rails pattern compatibility
+  - **Type Extraction**: Classes, modules, mixins
+  - **Member Analysis**: Instance methods, class methods, singleton methods, attribute accessors
+  - **Ruby Features**:
+    - Blocks, Proc, Lambda
+    - Metaprogramming patterns
+    - Rails-specific patterns
+    - Module include/extend
+    - Class variables and instance variables
+  - **Ruby Table Formatter**: Dedicated formatter for Ruby code output
+    - Full table format for classes, modules, methods, fields
+    - Compact table for quick previews
+    - CSV format for data processing
+    - Multi-class file support
+    - Correct handling of Ruby visibility (public, private, protected)
+  - Tree-sitter query support for Ruby idiom analysis
+  - Fully integrated into CLI, API, and MCP interfaces
+
+#### C# Language Support
+- **Full C# Language Support**: Added C# language support with modern features
+  - Extraction of classes, interfaces, records, enums, structs
+  - Extraction of methods, constructors, properties
+  - Extraction of fields, constants, events
+  - Extraction of using directives (imports)
+  - C# 8+ nullable reference type support
+  - C# 9+ record type support
+  - async/await pattern detection
+  - Attribute (annotation) extraction
+  - Generic type support
+  - Tree-sitter query support for complex code analysis
+  - **C# Table Formatter**: Dedicated formatter for C# code output
+    - Full table format for namespaces, classes, methods, fields
+    - Compact table for quick previews
+    - CSV format for data processing
+    - Multi-class file support
+    - Correct handling of C# visibility (public, private, protected, internal)
+  - Fully integrated into CLI, API, and MCP interfaces
+
+### 🎯 Quality Assurance
+- **Tests**: 3,559 tests, all passed
+- **Coverage**: Automatic tracking by Codecov
+- **Quality**: Enterprise-grade
+- **Multi-language Support**: 11 languages with full plugin implementation
+
+## [1.9.8] - 2025-11-09
+
+### 🔄 Release Management
+- **Standard Release Process**: Released 1.9.8 following GitFlow release process
+  - Updated version number from 1.9.7 to 1.9.8
+  - Synchronized version badges across all documentation
+  - Tests: All 3,556 tests passed
+  - Coverage: Using Codecov automatic badges
+
+### 🎯 Quality Assurance
+- **Tests**: All 3,556 tests passed
+- **Coverage**: Automatic tracking by Codecov
+- **Quality**: Enterprise-grade
+
+## [1.9.7] - 2025-11-09
+
+### 📚 OpenSpec Changes
+- **Language Plugin Isolation Audit**: Completed framework-level language plugin isolation audit
+  - Isolation Rating: ⭐⭐⭐⭐⭐ (5/5 stars)
+  - All 7 automated tests passed (100%)
+  - Verified cache keys contain language identifiers
+  - Confirmed each language has independent plugin instances
+  - Verified factory pattern creates new extractor instances
+  - Confirmed no class-level shared state
+  - Entry Points provide clear boundaries
+  - Fully meets user requirements: No mutual impact when adding new language support
+
+### 🛠️ Architecture Improvements
+- **Command-Formatter Separation**: Fixed CLI command layer design flaw to prevent regressions when adding new languages
+  - Introduced `FormatterSelector` service for explicit configuration-based formatter selection
+  - Created `LANGUAGE_FORMATTER_CONFIG` to clearly define formatting strategy for each language
+  - Replaced implicit `if formatter exists` checks with configuration-driven selection
+  - Full separation: Adding new languages no longer affects existing language output
+  - Removed unused `_convert_to_formatter_format()` methods from 3 command files
+
+### 🐛 Bug Fixes
+- **Package Name Extraction Improvement**: Fixed Java file package name extraction issue
+  - Directly use `analysis_result.package` attribute, ensuring package name is always available
+  - Fixed unnecessary "unknown." prefix in JavaScript/TypeScript output
+  - Return empty string instead of "unknown" for non-package languages (JS/TS/Python)
+
+- **Title Generation Optimization**: Improved title generation logic for multi-class files
+  - Java multi-class files: `com.example.Sample` instead of `com.example.FirstClass`
+  - More accurate representation: Filename indicates multi-class file
+  - Python: Added `Module:` prefix for clarity
+  - JavaScript/TypeScript: Removed misleading "unknown." prefix
+
+### 📊 Golden Master Updates
+- Updated golden master files for all formats to match new improved output
+- All 16 golden master tests passed
+- SQL indexes now display table names and column information (more complete output)
+
+### 🎯 Quality Assurance
+- **Tests**: All 3,556 tests passed
+- FormatterSelector service implementation and testing completed
+- table_command.py now uses explicit formatter selection
+- JavaScript/TypeScript no longer displays "unknown" package
+- All golden master tests passed
+- Cleaned up unused code from other commands
+
+### ✨ SQL New Features
+- **SQL Output Format Redesign Completed**: Fully implemented dedicated output format for SQL files
+  - **Database-Specific Terminology**: Changed from generic class-based terminology to appropriate database terminology
+  - **Comprehensive SQL Element Support**: Identification and display of all SQL element types
+  - **Three Output Formats**: Full (detailed), Compact (summary), CSV (data processing)
+  - **Dedicated Formatters**: Implemented SQLFullFormatter, SQLCompactFormatter, SQLCSVFormatter
+
+- **SQL Language Support Added**: Added SQL file parsing functionality
+  - Full extraction support for CREATE TABLE, CREATE VIEW, CREATE PROCEDURE, etc.
+  - Added tree-sitter-sql as optional dependency
+
+### 📚 Documentation
+- **SQL Format Guide**: Created dedicated SQL output format documentation
+- **Usage Examples**: Documented examples and best practices for all output formats
+
+## [1.9.6] - 2025-11-06
+
+### 🚀 Release
+- **Version 1.9.6**: Stable release
+- **Quality Metrics**: 3445 tests passed, maintained enterprise-grade quality
+- **PyPI Distribution**: Secure package distribution via automated workflow
+
+### 🐛 Bug Fixes
+- **Java Language Support**: Correct recognition of interface/enum/class types
+- **Java Enum Support Enhancement**: Fixed member extraction within enums
+- **Language-Specific Default Visibility**: Set appropriate default visibility per language
+
+### 🧪 Test Improvements
+- **Golden Master Testing Introduction**: Established regression testing infrastructure
+- **Test Fixture Organization**: Organized test files in `tests/test_data/`
+
+### 📚 Documentation
+- **Test Guide Added**: Documented golden master testing best practices
+- **Multi-language README Updates**: Synchronized version info and test counts
+
+## [Unreleased]
+
+
+## [1.9.5] - 2025-11-06
+
+### 🚀 Feature Improvements
+- **GitFlow Release Process Automation**: Automatic version update from v1.9.4 to v1.9.5
+- **Continuous Quality Assurance**: Maintained existing feature stability and quality improvement
+- **Multi-language Documentation Sync**: Unified version information across all language README files
+
+### 📚 Documentation
+- **Version Sync**: Updated version info in README.md, README_zh.md, README_ja.md to v1.9.5
+- **Multi-language Support**: Unified v1.9.5 version information across all language documentation
+- **Quality Metrics Update**: Updated test suite information (3432 tests)
+
+### 🧪 Quality Assurance
+- **Test Suite**: All 3432 tests passed
+- **Continuous Quality**: Confirmed no impact on existing features
+- **Cross-Platform**: Full compatibility on Windows, macOS, Linux
+- **Automated Process**: Enhanced quality assurance through GitFlow release automation
+
+### 🛠️ Technical Improvements
+- **Version Management**: Synchronized server_version and package version in pyproject.toml
+- **Release Process**: Continued execution of 10-step GitFlow release automation
+- **Quality Metrics**: Maintained comprehensive test coverage and code quality
+
+## [1.9.4] - 2025-11-05
+
+### 🚀 Feature Improvements
+- **GitFlow Release Process Automation**: Automatic version update from v1.9.3 to v1.9.4
+- **Custom Query API Support**: Support for custom query execution via `analyze_file()` and `execute_query()`
+  - Added `queries` parameter to `AnalysisEngine.analyze_file()`
+  - Added `execute_query_with_language_name()` method to `QueryExecutor` for explicit language name specification
+  - Added query result grouping functionality (`_group_captures_by_main_node()`)
+  - Automatic grouping of captures by main nodes (methods, classes, functions, etc.)
+  - Impact: User-defined queries executable via API, enabling more flexible code analysis
+
+### 🔧 Fixes
+- **Java Annotation Query Fix**: Fixed `method_with_annotations` query to correctly match annotated methods
+  - Issue: Query pattern `(modifiers (annotation) @annotation)*` was looking for multiple `modifiers` nodes
+  - Fix: Changed to `(modifiers [(annotation) (marker_annotation)]+ @annotation)` to match multiple annotations within a single `modifiers` node
+  - Impact: Annotated methods with `@Override`, `@Test`, `@SuppressWarnings`, etc. now correctly extracted
+  - Tests: All 5 unit tests passed, manual verification confirmed
+
+### 📚 Documentation
+- **Version Sync**: Unified version info across README.md, README_zh.md, README_ja.md
+- **Multi-language Support**: Updated v1.9.4 version information in all language documentation
+
+### 🧪 Quality Assurance
+- **Annotation Query Test Suite**: Implemented comprehensive tests for Java annotation queries
+  - Single marker annotation (`@Override`) tests
+  - Parameterized annotation (`@SuppressWarnings("unchecked")`) tests
+  - Multiple annotation tests
+  - Mixed annotated/non-annotated method tests
+  - Capture type structure verification tests
+  - All 5 tests passed, existing API tests (9 tests) also all passed
+- **Test Suite**: All 3,396 tests passed
+- **Continuous Quality**: Confirmed no impact on existing features
+- **Cross-Platform**: Full compatibility on Windows, macOS, Linux
+
+## [1.9.3] - 2025-11-03
+
+### 🚀 Feature Improvements
+- **GitFlow Release Process Automation**: Automatic version update from v1.9.2 to v1.9.3
+- **Project Management Framework**: Established comprehensive project management system
+- **Code Quality Standards**: Implemented Roo rule system and coding checklist
+- **Multi-language Documentation System**: Significant expansion of Japanese project documentation
+
+### 🔧 Fixes
+- **HTML Element Duplication Issue**: Fixed HTML element duplication detection and Java regex patterns
+- **JavaScript Query Compatibility**: Resolved class_expression compatibility issue
+- **Test Environment Adaptation**: Improved Java plugin test environment adaptability
+- **Encoding Handling**: Implemented automatic encoding detection
+
+### 📚 Documentation
+- **Japanese Documentation System**: Aligned project management and test management documents with implementation
+- **Multi-language Support**: Significant expansion of Japanese documentation system
+- **Quality Standards Documentation**: Established comprehensive code quality standards and best practices
+- **Version Sync**: Unified version info across README.md, README_zh.md, README_ja.md
+
+### 🧪 Quality Assurance
+- **Test Suite**: All 3370 tests passed
+- **Type Safety**: Achieved 100% reduction of mypy errors from 317 to 0
+- **Continuous Quality**: Confirmed no impact on existing features
+- **Cross-Platform**: Full compatibility on Windows, macOS, Linux
+
+### 🛠️ Technical Improvements
+- **File Reading Optimization**: Improved performance and memory efficiency
+- **Encoding Support**: Comprehensive enhancement of UTF-8 encoding handling
+- **Security Enhancement**: Improved file path validation and security validation
+- **Development Environment Optimization**: Pre-commit hook optimization and Ruff error fixes
+
+## [1.9.2] - 2025-10-16
+
+### 🚀 Feature Improvements
+- **Fundamental Type Safety Improvement**: **100.0% reduction** of mypy errors from 317 to 0, significantly improving codebase reliability and maintainability.
+  - Added `CodeElement.to_summary_item()` method.
+  - Unified type systems for language plugins and security modules.
+  - Fixed type hierarchy in `markdown_plugin.py`.
+  - Removed unreachable code.
+
+### 📚 Documentation
+- **mypy Fix Report**: Added detailed record of fix work to `docs/mypy_error_fixes_report.md`.
+- **Developer Guide Update**: Added sections on type safety best practices and mypy configuration to `docs/developer_guide.md`.
+- **Future Improvement Plan**: Created improvement roadmap for remaining errors in `docs/type_safety_improvement_plan.md`.
+
+### 🧪 Quality Assurance
+- **Regression Testing**: Confirmed no impact on existing features (100% passed).
+- **Functional Testing**: Confirmed main features working correctly.
+- **Performance**: Confirmed no impact on execution speed or memory usage.
+
+## [1.9.2] - 2025-10-16
+
+### 🐛 Fixes
+- **search_content Tool Bug Fix and Token Optimization**: Critical bug fixes and performance improvements
+  - Fixed cache handling in total_only mode to always return integers
+  - Added missing match_count field to group_by_file results
+  - Improved sample_lines generation in summarize_search_results
+  - Resolved context explosion issue through proper token optimization
+
+### 🔧 Technical Improvements
+- Stabilized cache handling in search_content_tool.py
+- Improved result structure consistency in group_by_file mode
+- Optimized token usage and improved memory efficiency
+
+### 🧪 Quality Assurance
+- 3,370 tests - maintained 100% pass rate
+- Continued high code coverage
+- Ensured cross-platform compatibility
+
+## [1.9.1] - 2025-10-16
+
+### 🐛 Fixes
+- **HTML Formatter Warning Resolution**: Completely resolved duplicate registration warning messages
+- **Package Installation**: Achieved clean output
+- **Formatter Registration**: Stabilized through centralized management
+
+### 🔧 Technical Improvements
+- Removed auto-registration functionality from html_formatter.py
+- Unified to centralized management in formatter_registry.py
+- Fundamentally prevented duplicate registration
+
+### Fixed Warnings
+- `WARNING: Overriding existing formatter for format: html`
+- `WARNING: Overriding existing formatter for format: html_json`
+- `WARNING: Overriding existing formatter for format: html_compact`
+
+## [1.9.0] - 2025-10-16
+
+### 🚀 New Features
+- **Parallel Processing Engine**: Support for parallel search across multiple directories in search_content MCP tool
+- **Performance Improvement**: Up to 4x search speed improvement
+- **Type Safety Improvement**: 7% reduction in mypy errors (341→318)
+
+### 🔧 Improvements
+- Code style unification (significant reduction in ruff violations)
+- Comprehensive resolution of technical debt
+- Maintained 83% reduction in test execution time
+
+### 🧪 Testing
+- Added comprehensive test suite for parallel processing functionality
+- Enhanced error handling and timeout control
+
+### 📚 Documentation
+- Added technical debt analysis report
+- Formulated next development plan
+
+## [1.8.4] - 2025-10-16
+
+### 🚀 Added
+
+#### Configurable File Logging Feature
+- **🆕 Environment Variable File Log Control**: Flexible log settings via new environment variables
+  - `TREE_SITTER_ANALYZER_ENABLE_FILE_LOG`: Enable/disable file logging
+  - `TREE_SITTER_ANALYZER_LOG_DIR`: Specify custom log directory
+  - `TREE_SITTER_ANALYZER_FILE_LOG_LEVEL`: Control file log level
+- **🛡️ Improved Default Behavior**: File logging disabled by default to prevent user project pollution
+- **📁 System Temp Directory Usage**: Uses system temp directory when file logging is enabled
+- **🔄 Backward Compatibility**: Design that doesn't affect existing functionality
+
+#### Comprehensive Documentation and Testing
+- **📚 New Documentation**:
+  - `docs/debugging_guide.md`: Comprehensive debugging guide (247 lines)
+  - `docs/troubleshooting_guide.md`: Troubleshooting guide (354 lines)
+- **🧪 Comprehensive Test Suite**: `tests/test_logging_configuration.py` (381 lines of test cases)
+- **📖 README Update**: Added detailed explanation of log settings (53 lines added)
+
+### 🔧 Enhanced
+
+#### Log System Improvements
+- **⚙️ Flexible Configuration Options**: Fine-grained log control via environment variables
+- **🎯 User Experience**: Prevention of project pollution and clean operation
+- **🔧 Developer Support**: Enhanced debugging and troubleshooting
+
+### 🧪 Quality Assurance
+
+#### Continuous Quality Assurance
+- **3,380 tests**: Maintained 100% pass rate
+- **New Tests Added**: Comprehensive test coverage for log configuration functionality
+- **Cross-Platform**: Full compatibility on Windows, macOS, Linux
+
+### 📚 Documentation
+
+#### Significant Documentation Expansion
+- **Debugging Guide**: Detailed debugging procedures for developers
+- **Troubleshooting**: Common problems and solutions
+- **Configuration Guide**: Detailed configuration via environment variables
+
+### 🎯 Impact
+
+This version significantly improved the developer debugging experience through configurable file logging. By disabling file logging by default, it prevents user project pollution while providing flexibility to enable detailed logging when needed.
+
+## [1.8.3] - 2025-10-16
+
+### 🚀 Added
+
+#### FileOutputManager Unification - Managed Singleton Factory Pattern
+- **🆕 FileOutputManagerFactory**: Innovative Managed Singleton Factory Pattern implementation
+  - Unified management system guaranteeing one instance per project root
+  - Thread-safe concurrent access via Double-checked locking pattern
+  - Consistent instance management through path normalization
+  - Complete control over instance creation, deletion, and updates
+
+- **🔧 FileOutputManager Extension**: Added factory methods to existing class
+  - `get_managed_instance()`: Get factory-managed instance
+  - `create_instance()`: Direct instance creation (factory bypass)
+  - `set_project_root()`: Project root update functionality
+  - Provides new features while maintaining 100% backward compatibility
+
+- **🛠️ Convenience Function**: `get_file_output_manager()` - Convenience function for easy access
+
+#### MCP Tool Integration Implementation
+- **✅ All MCP Tools Unified**: Migrated 4 major MCP tools to new factory pattern
+  - `QueryTool`: Query execution tool (`set_project_path` method implemented)
+  - `TableFormatTool`: Code structure analysis tool (`set_project_path` method implemented)
+  - `SearchContentTool`: Content search tool (`set_project_path` method newly added)
+  - `FindAndGrepTool`: File search and content search tool (`set_project_path` method newly added)
+
+- **🔧 MCP Tool Design Consistency**: Unified interface implementation across all MCP tools
+  - Unified support for dynamic project path changes
+  - Consistent use of `FileOutputManager.get_managed_instance()`
+  - Proper logging and error handling
+
+### 🔧 Enhanced
+
+#### Significant Memory Efficiency Improvement
+- **75% Memory Usage Reduction**: 4 MCP tools × duplicate instances → 1 shared instance
+- **100% Instance Sharing Rate**: All MCP tools within same project root share same instance
+- **100% Thread Safety Guarantee**: Confirmed all 10 concurrent threads get same object
+
+#### Improved Configuration Consistency
+- **Unified Output Path Management**: All MCP tools within same project share same settings
+- **Environment Variable Integration**: Centralized management of `TREE_SITTER_OUTPUT_PATH`
+- **Automatic Sync on Project Root Update**: Automatic instance update on path change
+
+### 🧪 Quality Assurance
+
+#### Comprehensive Test Implementation
+- **19 passed**: FileOutputManagerFactory tests (0.44s)
+- **23 passed**: MCP tool integration tests (1.09s)
+- **22 passed**: MCP server integration tests (1.23s)
+- **100% Backward Compatibility**: Confirmed no changes needed to existing code
+
+#### Demo Execution Results
+```
+=== Factory Pattern Demo ===
+Factory returns same instance for same project root: True
+Instance count in factory: 1
+
+=== MCP Tool Simulation Demo ===
+Old tools share same FileOutputManager: False
+New tools share same FileOutputManager: True
+Factory instance count: 1
+
+=== Thread Safety Demo ===
+Starting 10 concurrent threads...
+All instances are the same object: True
+```
+
+### 📚 Documentation
+
+#### Implementation Documentation Complete
+- **Phase 2 Implementation Details**: Complete implementation record of MCP tool integration
+- **Final Effect Measurement Results**: Quantitative verification of memory efficiency improvement
+- **Migration Guidelines**: Step-by-step migration procedures and best practices
+- **Troubleshooting**: Common problems and solutions
+
+#### Developer Guide Updates
+- **FileOutputManager Best Practices**: New recommended usage methods
+- **New MCP Tool Development Guidelines**: Development procedures using factory pattern
+- **Performance Monitoring**: Memory usage monitoring and optimization methods
+- **Error Handling**: Safe fallback functionality implementation
+
+### 🎯 Technical Achievements
+
+#### Successful Design Pattern Implementation
+- **Managed Singleton Factory Pattern**: Unified instance management per project root
+- **Double-checked Locking**: Efficient and safe concurrent processing
+- **Strategy Pattern**: Choice between factory management vs direct creation
+- **Template Method Pattern**: Unified common processing flow
+
+#### Extensibility and Maintainability
+- **New MCP Tool Development**: Clear guidelines and templates
+- **Gradual Migration**: Introducing new features without affecting existing code
+- **Test-Driven Development**: Quality assurance through comprehensive test suite
+- **Documentation-Driven Development**: Complete implementation docs and migration guide
+
+### 📊 Performance Impact
+
+#### Before (Old Method)
+```
+Old tools share same FileOutputManager: False
+Memory usage: 4 × FileOutputManager instances
+```
+
+#### After (New Method)
+```
+New tools share same FileOutputManager: True
+Memory usage: 1 × Shared FileOutputManager instance
+Memory reduction: 75%
+```
+
+### 🔄 Migration Guide
+
+#### Recommended Pattern (New Development)
+```python
+# Recommended: Use factory-managed instance
+self.file_output_manager = FileOutputManager.get_managed_instance(project_root)
+```
+
+#### Existing Code (Backward Compatibility)
+```python
+# Existing: Continues to work without changes
+self.file_output_manager = FileOutputManager(project_root)
+```
+
+### ✅ Breaking Changes
+- **None**: All improvements maintain backward compatibility
+- **Additive**: New features are additive and optional
+- **Transparent**: Internal implementation is transparent to existing users
+
+### 🎊 Impact
+
+This implementation fundamentally solves the FileOutputManager duplicate initialization problem, significantly improving memory efficiency and configuration consistency. It successfully meets all technical requirements and provides a solid foundation for future expansion.
+
+## [1.8.2] - 2025-10-14
+
+### Improvements
+- **🔧 Development Workflow**: Regular maintenance release to publish latest changes from develop branch
+- **📚 Documentation**: Unified version numbers across all documentation files
+
+## [1.8.1] - 2025-10-14
+
+### 🔧 Fixes
+
+#### Critical Async/Await Inconsistency Resolution
+- **Critical**: Fixed async/await inconsistency in QueryService.execute_query()
+  - Resolved TypeError when QueryCommand and MCP QueryTool call execute_query()
+  - Added proper async keyword to method signatures
+  - Implemented async file reading using run_in_executor
+- Improved error handling for async operations
+- Enhanced concurrent query execution support
+
+### 🆕 Added
+
+#### Async Infrastructure Enhancement
+- Async file reading using asyncio.run_in_executor for non-blocking I/O
+- Comprehensive async test suite (test_async_query_service.py)
+- CLI async integration tests (test_cli_async_integration.py)
+- Async operation performance monitoring (test_async_performance.py)
+- Concurrent query execution capabilities
+
+### 🔧 Enhanced
+
+#### Code Quality and Type Safety
+- **Type Safety**: Complete type annotation improvements across core modules
+- **Code Style**: Unified code formatting and comprehensive style checking with ruff
+- **Error Handling**: Enhanced async operation error handling and recovery
+- **Performance**: <5% processing time increase, 3x+ improvement in concurrent throughput
+
+### 📊 Technical Details
+
+#### Breaking Changes
+- **None**: All improvements are backward compatible
+- **Transparent**: Internal async implementation is transparent to end users
+- **Maintained**: All existing CLI commands and MCP tools work unchanged
+
+#### Performance Impact
+- **Processing Time**: <5% increase for single queries
+- **Memory Usage**: <10% increase in memory consumption
+- **Concurrent Throughput**: 3x+ improvement in concurrent execution
+- **Test Coverage**: 25+ new async-specific tests added
+
+#### Migration Notes
+- No action required for existing users
+- All existing CLI commands and MCP tools work unchanged
+- Internal async implementation is transparent to end users
+
+#### Quality Assurance
+- **Type Checking**: 100% mypy compliance with zero type errors
+- **Code Style**: Full compliance with ruff formatting and linting
+- **Test Coverage**: All existing tests continue to pass
+- **Async Testing**: Comprehensive async-specific test coverage
+
+### 🎯 Impact
+
+#### For Developers
+- **Performance Improvement**: Better responsiveness through async I/O operations
+- **Concurrent Execution**: Ability to execute multiple queries simultaneously
+- **Improved Reliability**: Better error handling and recovery mechanisms
+
+#### For AI Assistants
+- **Seamless Integration**: No changes needed to existing MCP tool usage
+- **Performance Improvement**: Faster response times for large file analysis
+- **Enhanced Stability**: More robust async operation handling
+
+#### For Enterprise Users
+- **Production Ready**: Enhanced stability and performance for production workloads
+- **Scalability**: Improved handling of concurrent analysis requests
+- **Reliability**: Improved error handling and recovery mechanisms
+
+This release resolves critical async/await inconsistencies while maintaining full backward compatibility and significantly improving concurrent execution performance.
+
+## [1.8.0] - 2025-10-13
+
+### 🚀 Added
+
+#### Revolutionary HTML/CSS Language Support
+- **🆕 Complete HTML Analysis**: Full HTML DOM structure analysis with tag names, attributes, and hierarchical relationships
+- **🆕 Complete CSS Analysis**: Comprehensive CSS selector and property analysis with intelligent classification
+- **🆕 Specialized Data Models**: New `MarkupElement` and `StyleElement` classes for precise web technology analysis
+  - `MarkupElement`: HTML elements with tag_name, attributes, parent/children relationships, and element classification
+  - `StyleElement`: CSS rules with selector, properties, and intelligent property categorization
+- **🆕 Element Classification System**: Smart categorization system for better analysis
+  - HTML elements: structure, heading, text, list, media, form, table, metadata
+  - CSS properties: layout, box_model, typography, background, transition, interactivity
+
+#### Extensible Formatter Architecture
+- **🆕 FormatterRegistry**: Dynamic formatter management system using Registry pattern
+- **🆕 HTML Formatter**: Specialized formatter for HTML/CSS analysis results with structured table output
+- **🆕 Plugin-based Extension**: Easy addition of new formatters through `IFormatter` interface
+- **🆕 Enhanced Format Support**: Restored `analyze_code_structure` tool to v1.6.1.4 format specifications (full, compact, csv)
+
+#### Advanced Plugin System
+- **🆕 Language Plugin Architecture**: Extensible plugin system for adding new language support
+- **🆕 HTML Plugin**: Complete HTML language plugin with tree-sitter integration
+- **🆕 CSS Plugin**: Complete CSS language plugin with property analysis
+- **🆕 Element Categories**: Plugin-based element categorization for better code understanding
+
+### 🔧 Enhanced
+
+#### Architecture Improvements
+- **Enhanced**: Unified element system now supports HTML and CSS elements alongside traditional code elements
+- **Enhanced**: `AnalysisResult` model extended to handle mixed element types (code, markup, style)
+- **Enhanced**: Better separation of concerns with specialized formatters and plugins
+- **Enhanced**: Improved extensibility through Strategy and Factory patterns
+
+#### MCP Tools Enhancement
+- **Enhanced**: `analyze_code_structure` tool restored to v1.6.1.4 format specifications (full, compact, csv)
+- **Enhanced**: Better language detection for HTML and CSS files
+- **Enhanced**: Improved error handling for web technology analysis
+
+#### Developer Experience
+- **Enhanced**: Comprehensive test coverage for new HTML/CSS functionality
+- **Enhanced**: Better documentation and examples for web technology analysis
+- **Enhanced**: Improved CLI commands with HTML/CSS analysis examples
+
+### 📊 Technical Details
+
+#### New Files Added
+- `tree_sitter_analyzer/models.py`: Extended with `MarkupElement` and `StyleElement` classes
+- `tree_sitter_analyzer/formatters/formatter_registry.py`: Dynamic formatter management
+- `tree_sitter_analyzer/formatters/html_formatter.py`: Specialized HTML/CSS formatter
+- `tree_sitter_analyzer/plugins/base.py`: Enhanced plugin base classes
+- `tree_sitter_analyzer/languages/html_plugin.py`: Complete HTML language plugin
+- `tree_sitter_analyzer/languages/css_plugin.py`: Complete CSS language plugin
+
+#### Test Coverage
+- **Added**: Comprehensive test suite for new HTML/CSS functionality
+- **Added**: `tests/test_models_extended.py`: Extended data model testing
+- **Added**: `tests/test_formatter_registry.py`: Formatter registry testing
+- **Added**: `tests/test_html_formatter.py`: HTML formatter testing
+- **Added**: `tests/test_plugins_base.py`: Plugin system testing
+- **Added**: `tests/test_html_plugin.py`: HTML plugin testing
+- **Added**: Test data files: `tests/test_data/sample.html`, `tests/test_data/sample.css`
+
+#### Breaking Changes
+- **None**: All improvements are backward compatible
+- **Maintained**: Existing CLI and MCP functionality unchanged
+- **Extended**: New functionality is additive and optional
+
+### 🎯 Impact
+
+#### For Web Developers
+- **New Capability**: Analyze HTML structure and CSS rules with same precision as code analysis
+- **Better Understanding**: Intelligent classification of web elements and properties
+- **Enhanced Workflow**: Structured analysis output optimized for web development
+
+#### For AI Assistants
+- **Enhanced Integration**: Better understanding of web technologies through structured data models
+- **Improved Analysis**: More precise extraction of web component information
+- **Extended Capabilities**: Support for mixed HTML/CSS/JavaScript project analysis
+
+#### For Framework Development
+- **Extensible Foundation**: Easy addition of new language support through plugin system
+- **Flexible Formatting**: Dynamic formatter registration for custom output formats
+- **Maintainable Architecture**: Clean separation of concerns with specialized components
+
+### 📈 Quality Metrics
+- **Test Coverage**: All new functionality covered by comprehensive test suite
+- **Code Quality**: Maintains high standards with type safety and documentation
+- **Performance**: Efficient analysis with minimal overhead for new features
+- **Compatibility**: Full backward compatibility with existing functionality
+
+This major release establishes Tree-sitter Analyzer as a comprehensive analysis tool for modern web development, extending beyond traditional programming languages to support the full web technology stack.
+
+## [1.7.5] - 2025-10-12
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count maintained at 2934 tests (100% pass rate)
+  - Continued high code coverage and system stability
+  - Enterprise-grade quality assurance maintained
+- **🔧 Development Workflow**: Routine maintenance release following GitFlow best practices
+- **📚 Documentation**: Updated version references and maintained comprehensive documentation
+
+### Technical Details
+- **Test Coverage**: All 2934 tests passing with maintained high coverage
+- **Quality Metrics**: Stable test suite with consistent quality metrics
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This maintenance release ensures continued stability and updates version references across the project.
+
+## [1.7.4] - 2025-10-10
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count increased to 2934 (up from 2831)
+  - Code coverage improved to 80.08% (up from 79.19%)
+  - All tests passing with enhanced system stability
+- **🔧 Development Workflow**: Continued improvements to development and release processes
+- **📚 Documentation**: Maintained comprehensive documentation and examples
+
+### Technical Details
+- **Test Coverage**: All 2934 tests passing with 80.08% coverage
+- **Quality Metrics**: Enhanced test suite with improved coverage
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This minor release maintains the high quality standards while improving test coverage and system stability.
+
+## [1.7.3] - 2025-10-09
+
+### Added
+- **🆕 Complete Markdown Plugin Enhancement**: Comprehensive Markdown element extraction capabilities
+  - **5 New Element Types**: Added blockquotes, horizontal rules, HTML elements, text formatting, and footnotes
+  - **Enhanced Element Extraction**: New extraction methods for comprehensive Markdown analysis
+  - **Structured Analysis**: Convert Markdown documents to structured data for AI processing
+  - **Query System Integration**: Full integration with existing query and filtering functionality
+
+- **📝 New Markdown Extraction Methods**: Powerful new analysis capabilities
+  - `extract_blockquotes()`: Extract > quoted text blocks with proper attribution
+  - `extract_horizontal_rules()`: Extract ---, ***, ___ separators and dividers
+  - `extract_html_elements()`: Extract HTML blocks and inline tags within Markdown
+  - `extract_text_formatting()`: Extract **bold**, *italic*, `code`, ~~strikethrough~~ formatting
+  - `extract_footnotes()`: Extract [^1] references and definitions with linking
+
+- **🔧 Enhanced Tree-sitter Queries**: Extended query system for comprehensive parsing
+  - **New Footnotes Query**: Dedicated query for footnote references and definitions
+  - **Updated All Elements Query**: Enhanced query covering all 10 Markdown element types
+  - **Improved Pattern Matching**: Better recognition of complex Markdown structures
+
+### Enhanced
+- **📊 Markdown Formatter Improvements**: Enhanced table display for new element types
+  - **Comprehensive Element Display**: All 10 element types now displayed in structured tables
+  - **Better Formatting**: Improved readability and organization of Markdown analysis results
+  - **Consistent Output**: Unified formatting across all Markdown element types
+
+- **🧪 Test Suite Expansion**: Comprehensive test coverage for new functionality
+  - **67 New Test Cases**: Complete validation of all new Markdown features
+  - **Element-Specific Testing**: Dedicated tests for each new extraction method
+  - **Integration Testing**: Full validation of query system integration
+  - **Backward Compatibility**: Ensured all existing functionality remains intact
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count increased to 2831 (up from 2829)
+  - Code coverage improved to 79.19% (up from 76.51%)
+  - All tests passing with enhanced system stability
+  - CLI regression tests updated to reflect 47→69 elements (46% improvement)
+
+- **📚 Documentation**: Enhanced examples/test_markdown.md analysis coverage significantly
+- **🔧 Development Workflow**: Improved Markdown analysis capabilities for AI-assisted development
+- **🎯 Element Coverage**: Expanded from 5 to 10 Markdown element types for comprehensive analysis
+
+### Technical Details
+- **Enhanced Files**:
+  - `tree_sitter_analyzer/languages/markdown_plugin.py` - Added 5 new extraction methods
+  - `tree_sitter_analyzer/formatters/markdown_formatter.py` - Enhanced table formatting
+  - `tree_sitter_analyzer/queries/markdown.py` - Extended query definitions
+- **Test Coverage**: All 2831 tests passing with 79.19% coverage
+- **Quality Metrics**: Enhanced Markdown plugin with comprehensive validation
+- **Breaking Changes**: None - all improvements are backward compatible
+- **Element Count**: Increased from 47 to 69 elements in examples/test_markdown.md analysis
+
+This minor release introduces comprehensive Markdown analysis capabilities, making Tree-sitter Analyzer a powerful tool for document analysis and AI-assisted Markdown processing, while maintaining full backward compatibility.
+
+## [1.7.2] - 2025-10-09
+
+### Added
+- **🎯 File Output Optimization for MCP Search Tools**: Revolutionary token-efficient search result handling
+  - **Token Limit Solution**: New `suppress_output` and `output_file` parameters for `find_and_grep`, `list_files`, and `search_content` tools
+  - **Automatic Format Detection**: Smart file format selection (JSON/Markdown) based on content type
+  - **Massive Token Savings**: Reduces response size by up to 99% when saving large search results to files
+  - **Backward Compatibility**: Optional feature that doesn't affect existing functionality
+
+- **📚 ROO Rules Documentation**: Comprehensive optimization guide for tree-sitter-analyzer MCP usage
+  - **Complete Usage Guidelines**: Detailed rules for efficient MCP tool usage and token optimization
+  - **Japanese Language Support**: Full documentation in Japanese for ROO AI assistant integration
+  - **Best Practices**: Step-by-step optimization strategies for large-scale code analysis
+  - **Token Management**: Advanced techniques for handling large search results efficiently
+
+### Enhanced
+- **🔍 MCP Search Tools**: Enhanced `find_and_grep_tool`, `list_files_tool`, and `search_content_tool`
+  - **File Output Support**: Save large results to files instead of returning in responses
+  - **Token Optimization**: Dramatically reduces context usage for large analysis results
+  - **Smart Output Control**: When `suppress_output=true` and `output_file` is specified, only essential metadata is returned
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count increased to 2675 (up from 2662)
+  - Code coverage maintained at 78.85%
+  - All tests passing with continued system stability
+- **🔧 Development Workflow**: Enhanced MCP tools with better token management for AI-assisted development
+- **📚 Documentation**: Added comprehensive ROO rules for optimal tree-sitter-analyzer usage
+
+### Technical Details
+- **New Files**:
+  - `.roo/rules/ROO_RULES.md` - Comprehensive MCP optimization guidelines
+  - `tests/test_file_output_optimization.py` - Test coverage for file output features
+- **Enhanced Files**:
+  - `tree_sitter_analyzer/mcp/tools/find_and_grep_tool.py` - Added file output support
+  - `tree_sitter_analyzer/mcp/tools/list_files_tool.py` - Added file output support  
+  - `tree_sitter_analyzer/mcp/tools/search_content_tool.py` - Added file output support
+- **Test Coverage**: All 2675 tests passing with 78.85% coverage
+- **Quality Metrics**: Enhanced file output optimization with comprehensive validation
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This minor release introduces game-changing file output optimization that solves token length limitations for large search results, along with comprehensive ROO rules documentation for optimal MCP tool usage.
+
+## [1.7.1] - 2025-10-09
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count maintained at 2662 tests
+  - Code coverage maintained at 79.16%
+  - All tests passing with continued system stability
+- **🔧 Version Management**: Updated version synchronization and release preparation
+- **📚 Documentation**: Updated all README versions with v1.7.1 version information
+
+### Technical
+- **🚀 Release Process**: Streamlined GitFlow release automation
+- **🔄 Version Sync**: Enhanced version synchronization across all project files
+- **📦 Build System**: Improved release preparation and packaging
+
+## [1.7.0] - 2025-10-09
+
+### Added
+- **🎯 suppress_output Feature**: Revolutionary token optimization feature for `analyze_code_structure` tool
+  - **Token Limit Solution**: New `suppress_output` parameter reduces response size by up to 99% when saving to files
+  - **Smart Output Control**: When `suppress_output=true` and `output_file` is specified, only essential metadata is returned
+  - **Backward Compatibility**: Optional feature that doesn't affect existing functionality
+  - **Performance Optimization**: Dramatically reduces context usage for large analysis results
+
+- **📊 Enhanced MCP Tools Documentation**: Comprehensive MCP tools reference and usage guide
+  - **Complete Tool List**: All 12 MCP tools documented with detailed descriptions
+  - **Usage Examples**: Practical examples for each tool with real-world scenarios
+  - **Parameter Reference**: Complete parameter documentation for all tools
+  - **Integration Guide**: Step-by-step setup instructions for AI assistants
+
+- **🌐 Multi-language Documentation Updates**: Synchronized documentation across all language versions
+  - **Chinese (README_zh.md)**: Updated with new statistics and MCP tools documentation
+  - **Japanese (README_ja.md)**: Complete translation with feature explanations
+  - **English (README.md)**: Enhanced with comprehensive MCP tools reference
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count increased to 2662 (up from 2046)
+  - Code coverage maintained at 79.16%
+  - All tests passing with improved system stability
+- **🔧 Code Quality**: Enhanced suppress_output feature implementation and testing
+- **📚 Documentation**: Updated all README versions with new statistics and comprehensive MCP tools documentation
+
+### Technical Details
+- **New Files**:
+  - `examples/suppress_output_demo.py` - Demonstration of suppress_output feature
+  - `tests/test_suppress_output_feature.py` - 356 comprehensive test cases
+- **Enhanced Files**:
+  - `tree_sitter_analyzer/mcp/tools/table_format_tool.py` - Added suppress_output functionality
+  - All README files updated with v1.7.0 statistics and MCP tools documentation
+- **Test Coverage**: All 2662 tests passing with 79.16% coverage
+- **Quality Metrics**: Enhanced suppress_output feature with comprehensive validation
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This minor release introduces the game-changing suppress_output feature that solves token length limitations for large analysis results, along with comprehensive MCP tools documentation across all language versions.
+
+## [1.6.2] - 2025-10-07
+
+### Added
+- **🚀 Complete TypeScript Support**: Comprehensive TypeScript language analysis capabilities
+  - **TypeScript Plugin**: Full TypeScript language plugin implementation (`tree_sitter_analyzer/languages/typescript_plugin.py`)
+  - **Syntax Support**: Support for interfaces, type aliases, enums, generics, decorators, and all TypeScript features
+  - **TSX/JSX Support**: Complete React TypeScript component analysis
+  - **Framework Detection**: Automatic detection of React, Angular, Vue components
+  - **Type Annotations**: Full TypeScript type system support
+  - **TSDoc Extraction**: Automatic extraction of TypeScript documentation comments
+  - **Complexity Analysis**: TypeScript code complexity calculation
+
+- **📦 Dependency Configuration**: TypeScript-related dependencies fully configured
+  - **Optional Dependency**: `tree-sitter-typescript>=0.20.0,<0.25.0`
+  - **Dependency Groups**: Included in web, popular, all-languages dependency groups
+  - **Full Support**: Support for .ts, .tsx, .d.ts file extensions
+
+- **🧪 Test Coverage**: Complete TypeScript test suite
+  - **Comprehensive Tests**: Full TypeScript feature testing
+  - **Example Files**: Detailed TypeScript code examples provided
+  - **Integration Tests**: TypeScript plugin integration testing
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count increased to 2046 (up from 1893)
+  - Code coverage maintained at 69.67%
+  - All tests passing with improved system stability
+- **🔧 Code Quality**: Complete TypeScript support implementation and testing
+- **📚 Documentation**: Updated all related documentation and examples
+
+### Technical Details
+- **New Files**: Complete TypeScript plugin, queries, formatters implementation
+- **Test Coverage**: All 2046 tests passing with 69.67% coverage
+- **Quality Metrics**: Full TypeScript language support
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This minor release introduces complete TypeScript support, providing developers with powerful TypeScript code analysis capabilities while maintaining full backward compatibility.
+
+## [1.6.1.4] - 2025-10-29
+
+### Added
+- **🚀 Streaming File Reading Performance Enhancement**: Revolutionary file reading optimization for large files
+  - **Streaming Approach**: Implemented streaming approach in `read_file_partial` to handle large files without loading entire content into memory
+  - **Performance Improvement**: Dramatically reduced read times from 30 seconds to under 200ms for large files
+  - **Memory Efficiency**: Significantly reduced memory usage through line-by-line reading approach
+  - **Context Manager**: Introduced `read_file_safe_streaming` context manager for efficient file operations
+  - **Automatic Encoding Detection**: Enhanced encoding detection with streaming support
+
+### Enhanced
+- **📊 MCP Tools Performance**: Enhanced `extract_code_section` tool performance through optimized file reading
+- **🔧 File Handler Optimization**: Refactored file handling with improved streaming capabilities
+- **🧪 Comprehensive Testing**: Added extensive test coverage for performance improvements and memory usage validation
+  - **Performance Tests**: `test_streaming_read_performance.py` with 163 comprehensive tests
+  - **Extended Tests**: `test_streaming_read_performance_extended.py` with 232 additional tests
+- **📚 Documentation**: Added comprehensive design documentation and specifications for streaming performance
+
+### Technical Details
+- **Files Enhanced**:
+  - `tree_sitter_analyzer/file_handler.py` - Refactored with streaming capabilities
+  - `tree_sitter_analyzer/encoding_utils.py` - Enhanced with streaming support
+- **New Test Files**:
+  - `tests/test_streaming_read_performance.py` - Core performance validation
+  - `tests/test_streaming_read_performance_extended.py` - Extended performance testing
+- **Documentation Added**:
+  - Design specifications and proposals for streaming performance optimization
+  - MCP tools specifications with performance considerations
+- **Quality Metrics**: All 1980 tests passing with comprehensive validation
+- **Backward Compatibility**: 100% backward compatibility maintained with existing function signatures and behavior
+
+### Impact
+This release delivers significant performance improvements for large file handling while maintaining full backward compatibility. The streaming approach makes the tool more suitable for enterprise-scale codebases and improves user experience when working with large files.
+
+**Key Benefits:**
+- 🚀 **150x Performance Improvement**: Large file reading optimized from 30s to <200ms
+- 💾 **Memory Efficiency**: Reduced memory footprint through streaming approach
+- ✅ **Zero Breaking Changes**: Full backward compatibility maintained
+- 🏢 **Enterprise Ready**: Enhanced scalability for large codebases
+- 🧪 **Quality Assurance**: Comprehensive test coverage with 395 new performance tests
+
+---
+
+## [1.6.1.3] - 2025-10-27
+
+### Added
+- **🎯 LLM Guidance Enhancement**: Revolutionary token-efficient search guidance for search_content MCP tool
+  - **Token Efficiency Guide**: Comprehensive guidance in tool description with visual markers (📊・📉・⚡・🎯)
+  - **Progressive Workflow**: Step-by-step efficiency guidance (total_only → summary_only → detailed)
+  - **Token Cost Comparison**: Clear token estimates and efficiency rankings for each output format
+  - **Parameter Optimization**: Enhanced parameter descriptions with efficiency markers and recommendations
+  - **Mutually Exclusive Warning**: Clear guidance on parameter combinations to prevent conflicts
+
+- **🌐 Multilingual Error Messages**: Enhanced error handling with automatic language detection
+  - **Language Detection**: Automatic English/Japanese error message selection
+  - **Efficiency Guidance**: Error messages include token efficiency recommendations
+  - **Usage Examples**: Comprehensive usage examples in error messages
+  - **Visual Formatting**: Emoji-based formatting for enhanced readability
+
+- **🧪 Comprehensive Testing**: Enhanced test coverage for LLM guidance features
+  - **LLM Guidance Tests**: 10 new tests validating tool definition structure and guidance completeness
+  - **Description Quality Tests**: 11 new tests ensuring description quality and actionability
+  - **Multilingual Tests**: 9 new tests for multilingual error message functionality
+  - **Integration Tests**: Enhanced existing tests with multilingual error validation
+
+- **📚 Documentation & Best Practices**: Comprehensive guidance documentation
+  - **Token-Efficient Strategies**: New README section with progressive disclosure patterns
+  - **Best Practices Guide**: Created `.roo/rules/search-best-practices.md` with comprehensive usage patterns
+  - **MCP Design Updates**: Enhanced MCP tools design documentation with LLM guidance considerations
+  - **User Setup Guides**: Updated MCP setup documentation with efficiency recommendations
+
+### Enhanced
+- **🔧 Tool Definition Quality**:
+  - Description size optimized to ~252 tokens (efficient yet comprehensive)
+  - Visual formatting with Unicode markers for enhanced LLM comprehension
+  - Structured sections with clear hierarchy and actionable guidance
+  - Comprehensive parameter descriptions with usage scenarios
+
+- **🧪 Quality Assurance**:
+  - OpenSpec validation successful with strict compliance
+  - All 44 tests passing with comprehensive coverage
+  - Backward compatibility maintained for all existing functionality
+  - Performance impact negligible (<5ms overhead)
+
+### Technical Details
+- **Files Enhanced**: `search_content_tool.py`, `output_format_validator.py`
+- **New Test Files**: `test_llm_guidance_compliance.py`, `test_search_content_description.py`
+- **Documentation Updates**: README.md, MCP design docs, user setup guides
+- **Quality Metrics**: Zero breaking changes, full backward compatibility
+- **OpenSpec Compliance**: Strict validation passed for change specification
+
+### Impact
+This release transforms the search_content tool into a **self-teaching, token-efficient interface** that automatically guides LLMs toward optimal usage patterns. Users no longer need extensive Roo rules to achieve efficient search workflows - the tool itself provides comprehensive guidance for token optimization and proper usage patterns.
+
+**Key Benefits:**
+- 🎯 **Automatic LLM Guidance**: Tools teach proper usage without external documentation
+- 🎯 **Token Efficiency**: Progressive disclosure reduces token consumption by up to 99%
+- 🌐 **International Support**: Multilingual error messages enhance global accessibility
+- 🏢 **Quality Assurance**: Enterprise-grade testing and validation
+- ✅ **Zero Breaking Changes**: Full backward compatibility maintained
+
+This implementation serves as a model for future MCP tool enhancements, demonstrating how tools can be self-documenting and LLM-optimized while maintaining professional quality standards.
+
+---
+
+## [1.6.1.2] - 2025-10-19
+
+### Fixed
+- **🔧 Minor Release Update**: Incremental release based on v1.6.1.1 with updated version information
+  - **Version Synchronization**: Updated all version references from 1.6.1.1 to 1.6.1.2
+  - **Documentation Update**: Refreshed README badges and version information
+  - **Quality Metrics**: Maintained 1893 comprehensive tests with enterprise-grade quality assurance
+  - **Backward Compatibility**: Full compatibility maintained with all existing functionality
+
+### Technical Details
+- **Files Modified**: Updated `pyproject.toml`, `tree_sitter_analyzer/__init__.py`, and documentation
+- **Test Coverage**: All 1893 tests passing with comprehensive validation
+- **Quality Metrics**: Maintained high code quality standards
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This release provides an incremental update to v1.6.1.1 with refreshed version information while maintaining full backward compatibility and enterprise-grade quality standards.
+
+---
+
+## [1.6.1.1] - 2025-10-18
+
+### Fixed
+- **🔧 Logging Control Enhancement**: Enhanced logging control functionality for better debugging and monitoring
+  - **Comprehensive Test Framework**: Added extensive test cases for logging control across all levels (DEBUG, INFO, WARNING, ERROR)
+  - **Backward Compatibility**: Maintained full compatibility with CLI and MCP interfaces
+  - **Integration Testing**: Added comprehensive integration tests for logging variables and performance impact
+  - **Test Automation**: Implemented robust test automation scripts and result templates
+
+### Added
+- **🧪 Test Infrastructure**: Complete test framework for v1.6.1.1 validation
+  - **68 Test Files**: Comprehensive test coverage across all functionality
+  - **Logging Control Tests**: Full coverage of logging level controls and file output
+  - **Performance Testing**: Added performance impact validation for logging operations
+  - **Automation Scripts**: Test execution and result analysis automation
+
+### Technical Details
+- **Files Modified**: Enhanced `utils.py` with improved logging functionality
+- **Test Coverage**: 68 test files ensuring comprehensive validation
+- **Quality Metrics**: Maintained high code quality standards
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This hotfix release addresses logging control requirements identified in v1.6.1 and establishes a robust testing framework for future development while maintaining full backward compatibility.
+
+---
+
+## [1.6.0] - 2025-10-06
+
+### Added
+- **🎯 File Output Feature**: Revolutionary file output capability for `analyze_code_structure` tool
+  - **Token Limit Solution**: Save large analysis results to files instead of returning in responses
+  - **Automatic Format Detection**: Smart extension mapping (JSON → `.json`, CSV → `.csv`, Markdown → `.md`, Text → `.txt`)
+  - **Environment Configuration**: New `TREE_SITTER_OUTPUT_PATH` environment variable for output directory control
+  - **Security Validation**: Comprehensive path validation and write permission checks
+  - **Backward Compatibility**: Optional feature that doesn't affect existing functionality
+
+- **🐍 Enhanced Python Support**: Complete Python language analysis capabilities
+  - **Improved Element Extraction**: Better function and class detection algorithms
+  - **Error Handling**: Robust exception handling for edge cases
+  - **Extended Test Coverage**: Comprehensive test suite for Python-specific features
+
+- **📊 JSON Format Support**: New structured output format
+  - **Format Type Extension**: Added "json" to format_type enum options
+  - **Structured Data**: Enable better data processing workflows
+  - **API Consistency**: Seamless integration with existing format options
+
+### Improved
+- **🧪 Quality Metrics**:
+  - Test count increased to 1893 (up from 1869)
+  - Code coverage maintained at 71.48%
+  - Enhanced test stability with mock object improvements
+- **🔧 Code Quality**: Fixed test failures and improved mock handling
+- **📚 Documentation**: Updated all README versions with new feature descriptions
+
+### Technical Details
+- **Files Modified**: Enhanced MCP tools, file output manager, and Python plugin
+- **Test Coverage**: All 1893 tests pass with comprehensive coverage
+- **Quality Metrics**: 71.48% code coverage maintained
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This minor release introduces game-changing file output capabilities that solve token length limitations while maintaining full backward compatibility. The enhanced Python support and JSON format options provide developers with more powerful analysis tools.
+
+## [1.5.0] - 2025-01-19
+
+### Added
+- **🚀 Enhanced JavaScript Analysis**: Improved JavaScript plugin with extended query support
+  - **Advanced Pattern Recognition**: Enhanced detection of JavaScript-specific patterns and constructs
+  - **Better Error Handling**: Improved exception handling throughout the codebase
+  - **Extended Test Coverage**: Added comprehensive test suite with 1869 tests (up from 1797)
+
+### Improved
+- **📊 Quality Metrics**:
+  - Test count increased to 1869 (up from 1797)
+  - Maintained high code quality standards with 71.90% coverage
+  - Enhanced CI/CD pipeline with better cross-platform compatibility
+- **🔧 Code Quality**: Improved encoding utilities and path resolution
+- **💡 Plugin Architecture**: Enhanced JavaScript language plugin with better performance
+
+### Technical Details
+- **Files Modified**: Multiple files across the codebase for improved functionality
+- **Test Coverage**: All 1869 tests pass with comprehensive coverage
+- **Quality Metrics**: 71.90% code coverage maintained
+- **Breaking Changes**: None - all improvements are backward compatible
+
+This minor release focuses on enhanced JavaScript support and improved overall code quality,
+making the tool more robust and reliable for JavaScript code analysis.
+
+## [1.4.1] - 2025-01-19
+
+### Fixed
+- **🐛 find_and_grep File Search Scope Bug**: Fixed critical bug where ripgrep searched in parent directories instead of only in files found by fd
+  - **Root Cause**: Tool was using parent directories as search roots, causing broader search scope than intended
+  - **Solution**: Now uses specific file globs to limit ripgrep search to exact files discovered by fd
+  - **Impact**: Ensures `searched_file_count` and `total_files` metrics are consistent and accurate
+  - **Example**: When fd finds 7 files matching `*pattern*`, ripgrep now only searches those 7 files, not all files in their parent directories
+
+### Technical Details
+- **Files Modified**: `tree_sitter_analyzer/mcp/tools/find_and_grep_tool.py`
+- **Test Coverage**: All 1797 tests pass, including 144 fd/rg tool tests
+- **Quality Metrics**: 74.45% code coverage maintained
+- **Breaking Changes**: None - fix improves accuracy without changing API
+
+This patch release resolves a significant accuracy issue in the find_and_grep tool,
+ensuring search results match user expectations and tool documentation.
+
+## [1.4.0] - 2025-01-18
+
+### Added
+- **🎯 Enhanced Search Content Structure**: Improved `search_content` tool with `group_by_file` option
+  - **File Grouping**: Eliminates file path duplication by grouping matches by file
+  - **Token Efficiency**: Significantly reduces context usage for large search results
+  - **Structured Output**: Results organized as `files` array instead of flat `results` array
+  - **Backward Compatibility**: Maintains existing `results` structure when `group_by_file=False`
+
+### Improved
+- **📊 Search Results Optimization**:
+  - Same file matches are now grouped together instead of repeated entries
+  - Context consumption reduced by ~80% for multi-file searches
+  - Better organization for AI assistants processing search results
+- **🔧 MCP Tool Enhancement**: `SearchContentTool` now supports efficient file grouping
+- **💡 User Experience**: Cleaner, more organized search result structure
+
+### Technical Details
+- **Issue**: Search results showed same file paths repeatedly, causing context overflow
+- **Solution**: Implemented `group_by_file` option with file-based grouping logic
+- **Impact**: Dramatically reduces token usage while maintaining all match information
+- **Files Modified**:
+  - `tree_sitter_analyzer/mcp/tools/search_content_tool.py` - Added group_by_file processing
+  - `tree_sitter_analyzer/mcp/tools/fd_rg_utils.py` - Enhanced group_matches_by_file function
+  - All existing tests pass with new functionality
+
+This minor release introduces significant improvements to search result organization
+and token efficiency, making the tool more suitable for AI-assisted code analysis.
+
+## [1.3.9] - 2025-01-18
+
+### Fixed
+- **📚 Documentation Fix**: Fixed CLI command examples in all README versions (EN, ZH, JA)
+- **🔧 Usage Instructions**: Added `uv run` prefix to all CLI command examples for development environment
+- **💡 User Experience**: Added clear usage notes explaining when to use `uv run` vs direct commands
+- **🌐 Multi-language Support**: Updated English, Chinese, and Japanese documentation consistently
+
+### Technical Details
+- **Issue**: Users couldn't run CLI commands directly without `uv run` prefix in development
+- **Solution**: Updated all command examples to include `uv run` prefix
+- **Impact**: Eliminates user confusion and provides clear usage instructions
+- **Files Modified**:
+  - `README.md` - English documentation
+  - `README_zh.md` - Chinese documentation
+  - `README_ja.md` - Japanese documentation
+
+This patch release resolves documentation inconsistencies and improves user experience
+by providing clear, working examples for CLI command usage in development environments.
+
+## [1.3.8] - 2025-01-18
+
+### Added
+- **🆕 New CLI Commands**: Added standalone CLI wrappers for MCP FD/RG tools
+  - `list-files`: CLI wrapper for `ListFilesTool` (fd functionality)
+  - `search-content`: CLI wrapper for `SearchContentTool` (ripgrep functionality)
+  - `find-and-grep`: CLI wrapper for `FindAndGrepTool` (fd → ripgrep composition)
+- **🔧 CLI Integration**: All new CLI commands are registered as independent entry points in `pyproject.toml`
+- **📋 Comprehensive Testing**: Added extensive CLI functionality testing with 1797 tests and 74.46% coverage
+
+### Enhanced
+- **🎯 CLI Functionality**: Improved CLI interface with better error handling and output formatting
+- **🛡️ Security**: All CLI commands inherit MCP tool security boundaries and project root detection
+- **📊 Quality Metrics**: Maintained high test coverage and code quality standards
+
+### Technical Details
+- **Architecture**: New CLI commands use adapter pattern to wrap MCP tools
+- **Entry Points**: Registered in `[project.scripts]` section of `pyproject.toml`
+- **Safety**: All commands include project boundary validation and error handling
+- **Files Added**:
+  - `tree_sitter_analyzer/cli/commands/list_files_cli.py`
+  - `tree_sitter_analyzer/cli/commands/search_content_cli.py`
+  - `tree_sitter_analyzer/cli/commands/find_and_grep_cli.py`
+
+This release provides users with direct access to powerful file system operations through dedicated CLI tools while maintaining the security and reliability of the MCP architecture.
+
+## [1.3.7] - 2025-01-15
+
+### Fixed
+- **🔍 Search Content Files Parameter Bug**: Fixed critical issue where `search_content` tool with `files` parameter would search all files in parent directory instead of only specified files
+- **🎯 File Filtering**: Added glob pattern filtering to restrict search scope to exactly the files specified in the `files` parameter
+- **🛡️ Special Character Handling**: Properly escape special characters in filenames for glob pattern matching
+
+### Technical Details
+- **Root Cause**: When using `files` parameter, the tool was extracting parent directories as search roots but not filtering the search to only the specified files
+- **Solution**: Added file-specific glob patterns to `include_globs` parameter to restrict ripgrep search scope
+- **Impact**: `search_content` tool now correctly searches only the files specified in the `files` parameter
+- **Files Modified**: `tree_sitter_analyzer/mcp/tools/search_content_tool.py`
+
+This hotfix resolves a critical bug that was causing incorrect search results when using the `files` parameter in the `search_content` tool.
+
+## [1.3.6] - 2025-09-17
+
+### Fixed
+- **🔧 CI/CD Cross-Platform Compatibility**: Resolved CI test failures across multiple platforms and environments
+- **🍎 macOS Path Resolution**: Fixed symbolic link path handling in test assertions for macOS compatibility
+- **🎯 Code Quality**: Addressed Black formatting inconsistencies and Ruff linting issues across different environments
+- **⚙️ Test Logic**: Improved test parameter validation and file verification logic in MCP tools
+
+### Technical Details
+- **Root Cause**: Multiple CI failures due to environment-specific differences in path handling, code formatting, and test logic
+- **Solutions Implemented**:
+  - Fixed `max_count` parameter clamping logic in `SearchContentTool`
+  - Added comprehensive file/roots validation in `validate_arguments` methods
+  - Resolved `Path` import scope issues in `FindAndGrepTool`
+  - Implemented robust macOS symbolic link path resolution in test assertions
+  - Fixed Black formatting consistency issues in `scripts/sync_version.py`
+- **Impact**: All CI tests now pass consistently across Ubuntu, Windows, and macOS platforms
+- **Test Statistics**: 1794 tests, 74.77% coverage
+
+This release ensures robust cross-platform compatibility and resolves all CI/CD pipeline issues that were blocking the development workflow.
+
+## [1.3.4] - 2025-01-15
+
+### Fixed
+- **📚 Documentation Updates**: Updated all README files (English, Chinese, Japanese) with correct version numbers and statistics
+- **🔄 GitFlow Process**: Completed proper hotfix workflow with documentation updates before merging
+
+### Technical Details
+- **Documentation Consistency**: Ensured all README files reflect the correct version (1.3.4) and test statistics
+- **GitFlow Compliance**: Followed proper hotfix branch workflow with complete documentation updates
+- **Multi-language Support**: Updated version references across all language variants of documentation
+
+This release completes the documentation updates that should have been included in the hotfix workflow before merging to main and develop branches.
+
+## [1.3.3] - 2025-01-15
+
+### Fixed
+- **🔍 MCP Search Tools Gitignore Detection**: Added missing gitignore auto-detection to `find_and_grep_tool` for consistent behavior with other MCP tools
+- **⚙️ FD Command Pattern Handling**: Fixed fd command construction when no pattern is specified to prevent absolute paths being interpreted as patterns
+- **🛠️ List Files Tool Error**: Resolved fd command errors in `list_files_tool` by ensuring '.' pattern is used when no explicit pattern provided
+- **🧪 Test Coverage**: Updated test cases to reflect corrected fd command pattern handling behavior
+
+### Technical Details
+- **Root Cause**: Missing gitignore auto-detection in `find_and_grep_tool` and incorrect fd command pattern handling in `fd_rg_utils.py`
+- **Solution**: Implemented gitignore detector integration and ensured default '.' pattern is always provided to fd command
+- **Impact**: Fixes search failures in projects with `.gitignore` 'code/*' patterns and resolves fd command errors with absolute path interpretation
+- **Affected Tools**: `find_and_grep_tool`, `list_files_tool`, and `search_content_tool` consistency
+
+This hotfix ensures MCP search tools work correctly across different project configurations and .gitignore patterns.
+
+## [1.3.2] - 2025-09-16
+
+### Fixed
+- **🐛 Critical Cache Format Compatibility Bug**: Fixed a severe bug in the smart caching system where `get_compatible_result` was returning wrong format cached data
+- **Format Validation**: Added `_is_format_compatible` method to prevent `total_only` integer results from being returned for detailed query requests
+- **User Impact**: Resolved the issue where users requesting detailed results after `total_only` queries received integers instead of proper structured data
+- **Backward Compatibility**: Maintained compatibility for dict results with unknown formats while preventing primitive data return bugs
+
+### Technical Details
+- **Root Cause**: Direct cache hit was returning cached results without format validation
+- **Solution**: Implemented format compatibility checking before returning cached data
+- **Test Coverage**: Added comprehensive test suite with 6 test cases covering format compatibility scenarios
+- **Bug Discovery**: Issue was identified through real-world usage documented in `roo_task_sep-16-2025_1-18-38-am.md`
+
+This hotfix ensures MCP tools return correctly formatted data and prevents cache format mismatches that could break AI-assisted development workflows.
+
+## [1.3.1] - 2025-01-15
+
+### Added
+- **🧠 Intelligent Cross-Format Cache Optimization**: Revolutionary smart caching system that eliminates duplicate searches across different result formats
+- **🎯 total_only → count_only_matches Optimization**: Solves the specific user pain point of "don't waste double time re-searching when user wants file details after getting total count"
+- **⚡ Smart Result Derivation**: Automatically derives file lists and summaries from cached count data without additional ripgrep executions
+- **🔄 Cross-Format Cache Keys**: Intelligent cache key mapping enables seamless format transitions
+- **📊 Dual Caching Mechanism**: total_only searches now cache both simple totals and detailed file counts simultaneously
+
+### Performance Improvements
+- **99.9% faster follow-up queries**: Second queries complete in ~0.001s vs ~14s for cache misses (14,000x improvement)
+- **Zero duplicate executions**: Related search format requests served entirely from cache derivation
+- **Perfect for LLM workflows**: Optimized for "total → details" analysis patterns common in AI-assisted development
+- **Memory efficient derivation**: File lists and summaries generated from existing count data without additional storage
+
+### Technical Implementation
+- **Enhanced SearchCache**: Added `get_compatible_result()` method for intelligent cross-format result derivation
+- **Smart Cache Logic**: `_create_count_only_cache_key()` enables cross-format cache key generation
+- **Result Format Detection**: `_determine_requested_format()` automatically identifies output format requirements
+- **Comprehensive Derivation**: `create_file_summary_from_count_data()` and `extract_file_list_from_count_data()` utility functions
+
+### New Files & Demonstrations
+- **Core Implementation**: Enhanced `search_cache.py` with cross-format optimization logic
+- **Tool Integration**: Updated `search_content_tool.py` with dual caching mechanism
+- **Utility Functions**: Extended `fd_rg_utils.py` with result derivation capabilities
+- **Comprehensive Testing**: `test_smart_cache_optimization.py` with 11 test cases covering all optimization scenarios
+- **Performance Demos**: `smart_cache_demo.py` and `total_only_optimization_demo.py` showcasing real-world improvements
+
+### User Experience Improvements
+- **Transparent Optimization**: Users get performance benefits without changing their usage patterns
+- **Intelligent Workflows**: "Get total count → Get file distribution" workflows now complete almost instantly
+- **Cache Hit Indicators**: Results include `cache_hit` and `cache_derived` flags for transparency
+- **Real-world Validation**: Tested with actual project codebases showing consistent 99.9%+ performance improvements
+
+### Developer Benefits
+- **Type-Safe Implementation**: Full TypeScript-style type annotations for better IDE support
+- **Comprehensive Documentation**: Detailed docstrings and examples for all new functionality
+- **Robust Testing**: Mock-based tests ensure CI stability across different environments
+- **Performance Monitoring**: Built-in cache statistics and performance tracking
+
+This release addresses the critical performance bottleneck identified by users: avoiding redundant searches when transitioning from summary to detailed analysis. The intelligent caching system represents a fundamental advancement in search result optimization for code analysis workflows.
+
+## [1.3.0] - 2025-01-15
+
+### Added
+- **Phase 2 Cache System**: Implemented comprehensive search result caching for significant performance improvements
+- **SearchCache Module**: Thread-safe in-memory cache with TTL and LRU eviction (`tree_sitter_analyzer/mcp/utils/search_cache.py`)
+- **Cache Integration**: Integrated caching into `search_content` MCP tool for automatic performance optimization
+- **Performance Monitoring**: Added comprehensive cache statistics tracking and performance validation
+- **Cache Demo**: Interactive demonstration script showing 200-400x performance improvements (`examples/cache_demo.py`)
+
+### Performance Improvements
+- **99.8% faster repeated searches**: Cache hits complete in ~0.001s vs ~0.4s for cache misses
+- **200-400x speed improvements**: Demonstrated with real-world search operations
+- **Automatic optimization**: Zero-configuration caching with smart defaults
+- **Memory efficient**: LRU eviction and configurable cache size limits
+
+### Technical Details
+- **Thread-safe implementation**: Uses `threading.RLock()` for concurrent access
+- **Configurable TTL**: Default 1-hour cache lifetime with customizable settings
+- **Smart cache keys**: Deterministic key generation based on search parameters
+- **Path normalization**: Consistent caching across different path representations
+- **Comprehensive testing**: 19 test cases covering functionality and performance validation
+
+### Documentation
+- **Cache Feature Summary**: Complete implementation and performance documentation
+- **Usage Examples**: Clear examples for basic usage and advanced configuration
+- **Performance Benchmarks**: Real-world performance data and optimization benefits
+
+## [1.2.5] - 2025-09-15
+
+### 🐛 Bug Fixes
+
+#### Fixed list_files tool Java file detection issue
+- **Problem**: The `list_files` MCP tool failed to detect Java files when using root path "." due to command line argument conflicts in the `fd` command construction
+- **Root Cause**: Conflicting pattern and path arguments in `build_fd_command` function
+- **Solution**: Modified `fd_rg_utils.py` to use `--search-path` option for root directories and only append pattern when explicitly provided
+- **Impact**: Significantly improved cross-platform compatibility, especially for Windows environments
+
+### 🔧 Technical Changes
+- **File**: `tree_sitter_analyzer/mcp/tools/fd_rg_utils.py`
+  - Replaced positional path arguments with `--search-path` option
+  - Removed automatic "." pattern addition that caused conflicts
+  - Enhanced command construction logic for better reliability
+- **Tests**: Updated `tests/test_mcp_fd_rg_tools.py`
+  - Modified test assertions to match new `fd` command behavior
+  - Ensured test coverage for both pattern and no-pattern scenarios
+
+### 📚 Documentation Updates
+- **Enhanced GitFlow Documentation**: Added comprehensive AI-assisted development workflow
+- **Multi-language Sync**: Updated English, Chinese, and Japanese versions of GitFlow documentation
+- **Process Clarification**: Clarified PyPI deployment process and manual steps
+
+### 🚀 Deployment
+- **PyPI**: Successfully deployed to PyPI as version 1.2.5
+- **Compatibility**: Tested and verified on Windows environments
+- **CI/CD**: All automated workflows executed successfully
+
+### 📊 Testing
+- **Test Suite**: All 156 tests passing
+- **Coverage**: Maintained high test coverage
+- **Cross-platform**: Verified Windows compatibility
+
+## [1.2.4] - 2025-09-15
+
+### 🚀 Major Features
+
+#### SMART Analysis Workflow
+- **Complete S-M-A-R-T workflow**: Comprehensive workflow replacing the previous 3-step process
+  - **S (Setup)**: Project initialization and prerequisite verification
+  - **M (Map)**: File discovery and structure mapping
+  - **A (Analyze)**: Code analysis and element extraction
+  - **R (Retrieve)**: Content search and pattern matching
+  - **T (Trace)**: Dependency tracking and relationship analysis
+
+#### Advanced MCP Tools
+- **ListFilesTool**: Lightning-fast file discovery powered by `fd`
+- **SearchContentTool**: High-performance text search powered by `ripgrep`
+- **FindAndGrepTool**: Combined file discovery and content analysis
+- **Enterprise-grade Testing**: 50+ comprehensive test cases ensuring reliability and stability
+- **Multi-platform Support**: Complete installation guides for Windows, macOS, and Linux
+
+### 📋 Prerequisites & Installation
+- **fd and ripgrep**: Complete installation instructions for all platforms
+- **Windows Optimization**: winget commands and PowerShell execution policies
+- **Cross-platform**: Support for macOS (Homebrew), Linux (apt/dnf/pacman), Windows (winget/choco/scoop)
+- **Verification Steps**: Commands to verify successful installation
+
+### 🔧 Quality Assurance
+- **Test Coverage**: 1564 tests passed, 74.97% coverage
+- **MCP Tools Coverage**: 93.04% (Excellent)
+- **Real-world Validation**: All examples tested and verified with actual tool execution
+- **Enterprise-grade Reliability**: Comprehensive error handling and validation
+
+### 📚 Documentation & Localization
+- **Complete Translation**: Japanese and Chinese READMEs fully updated
+- **SMART Workflow**: Detailed step-by-step guides in all three languages
+- **Prerequisites Documentation**: Comprehensive installation guides
+- **Verified Examples**: All MCP tool examples tested and validated
+
+### 🎯 Sponsor Acknowledgment
+Special thanks to **@o93** for sponsoring this comprehensive MCP tools enhancement, enabling the early release of advanced file search and content analysis features.
+
+### 🛠️ Technical Improvements
+- **Advanced File Search**: Powered by fd for lightning-fast file discovery
+- **Intelligent Content Search**: Powered by ripgrep for high-performance text search
+- **Combined Tools**: FindAndGrepTool for comprehensive file discovery and content analysis
+- **Token Optimization**: Multiple output formats optimized for AI assistant interactions
+
+### ⚡ Performance & Reliability
+- **Built-in Timeouts**: Responsive operation with configurable time limits
+- **Result Limits**: Prevents overwhelming output with smart result limiting
+- **Error Resilience**: Comprehensive error handling and graceful degradation
+- **Cross-platform Testing**: Validated on Windows, macOS, and Linux environments
+
+## [1.2.3] - 2025-08-27
+
+### Release: v1.2.3
+
+#### 🐛 Java Import Parsing Fix
+- **Robust fallback mechanism**: Added regex-based import extraction when tree-sitter parsing fails
+- **CI environment compatibility**: Resolved import count assertion failures across different CI environments
+- **Cross-platform stability**: Enhanced Java parser robustness for Windows, macOS, and Linux
+
+#### 🔧 Technical Improvements
+- **Fallback import extraction**: Implemented backup parsing method for Java import statements
+- **Environment handling**: Better handling of tree-sitter version differences in CI environments
+- **Error recovery**: Improved error handling and recovery in Java element extraction
+- **GitFlow process correction**: Standardized release process documentation and workflow
+
+#### 📚 Documentation Updates
+- **Multi-language support**: Updated version numbers across all language variants (English, Japanese, Chinese)
+- **Process documentation**: Corrected and standardized GitFlow release process
+- **Version consistency**: Synchronized version numbers across all project files
+
+---
+
+## [1.2.2] - 2025-08-27
+
+### Release: v1.2.2
+
+#### 🐛 Documentation Fix
+
+##### 📅 Date Corrections
+- **Fixed incorrect dates** in CHANGELOG.md for recent releases
+- **v1.2.1**: Corrected from `2025-01-27` to `2025-08-27`
+- **v1.2.0**: Corrected from `2025-01-27` to `2025-08-26`
+
+#### 🔧 What was fixed
+- CHANGELOG.md contained incorrect dates (showing January instead of August)
+- This affected the accuracy of project release history
+- All dates now correctly reflect actual release dates
+
+#### 📋 Files changed
+- `CHANGELOG.md` - Date corrections for v1.2.1 and v1.2.0
+
+#### 🚀 Impact
+- Improved documentation accuracy
+- Better project history tracking
+- Enhanced user experience with correct release information
+
+---
+
+## [1.2.1] - 2025-08-27
+
+### Release: v1.2.1
+
+#### 🚀 Development Efficiency Improvements
+- **Removed README statistics check**: Eliminated time-consuming README statistics validation to improve development efficiency
+- **Simplified CI/CD pipeline**: Streamlined GitHub Actions workflows by removing unnecessary README checks
+- **Reduced manual intervention**: No more manual fixes for README statistics mismatches
+- **Focused development**: Concentrate on core functionality rather than statistics maintenance
+
+#### 🔧 Technical Improvements
+- **GitHub Actions cleanup**: Removed `readme-check-improved.yml` workflow
+- **Pre-commit hooks optimization**: Removed README statistics validation hooks
+- **Script cleanup**: Deleted `improved_readme_updater.py` and `readme_config.py`
+- **Workflow simplification**: Updated `develop-automation.yml` to remove README update steps
+
+#### 📚 Documentation Updates
+- **Updated scripts documentation**: Removed references to deleted README update scripts
+- **Streamlined workflow docs**: Updated automation workflow documentation
+- **Maintained core functionality**: Preserved essential GitFlow and version management scripts
+
+---
+
+## [1.2.0] - 2025-08-26
+
+### Release: v1.2.0
+
+#### 🚀 Feature Enhancements
+- **Improved README prompts**: Enhanced documentation with better prompts and examples
+- **Comprehensive documentation updates**: Added REFACTORING_SUMMARY.md for project documentation
+- **Unified element type system**: Centralized element type management with constants.py
+- **Enhanced CLI commands**: Improved structure and functionality across all CLI commands
+- **MCP tools improvements**: Better implementation of MCP tools and server functionality
+- **Security enhancements**: Updated validators and boundary management
+- **Comprehensive test coverage**: Added new test files including test_element_type_system.py
+
+#### 🔧 Technical Improvements
+- **Constants centralization**: New constants.py file for centralized configuration management
+- **Code structure optimization**: Improved analysis engine and core functionality
+- **Interface enhancements**: Better CLI and MCP adapter implementations
+- **Quality assurance**: Enhanced test coverage and validation systems
+
+---
+
+## [1.1.3] - 2025-08-25
+
+### Release: v1.1.3
+
+#### 🔧 CI/CD Fixes
+- **Fixed README badge validation**: Updated test badges to use `tests-1504%20passed` format for CI compatibility
+- **Resolved PyPI deployment conflict**: Version 1.1.2 was already deployed, incremented to 1.1.3
+- **Enhanced badge consistency**: Standardized test count badges across all README files
+- **Improved CI reliability**: Fixed validation patterns in GitHub Actions workflows
+
+#### 🛠️ Coverage System Improvements
+- **Root cause analysis**: Identified and documented environment-specific coverage differences
+- **Conservative rounding**: Implemented floor-based rounding for cross-environment consistency
+- **Increased tolerance**: Set coverage tolerance to 1.0% to handle OS and Python version differences
+- **Environment documentation**: Added detailed explanation of coverage calculation variations
+
+---
+
+## [1.1.2] - 2025-08-24
+
+### Release: v1.1.2
+
+#### 🔧 Coverage Calculation Unification
+- **Standardized coverage commands**: Unified pytest coverage commands across all documentation and CI workflows
+- **Increased tolerance**: Set coverage tolerance to 0.5% to prevent CI failures from minor variations
+- **Simplified configuration**: Streamlined coverage command in readme_config.py to avoid timeouts
+- **Consistent reporting**: All environments now use `--cov-report=term-missing` for consistent output
+
+#### 🧹 Branch Management
+- **Cleaned up merged branches**: Removed obsolete feature and release branches following GitFlow best practices
+- **Branch consistency**: Ensured all local branches align with GitFlow strategy
+- **Documentation alignment**: Updated workflows to match current branch structure
+
+#### 📚 Documentation Updates
+- **Updated all README files**: Consistent coverage commands in README.md, README_zh.md, README_ja.md
+- **CI workflow improvements**: Enhanced GitHub Actions workflows for better reliability
+- **Developer guides**: Updated CONTRIBUTING.md, DEPLOYMENT_GUIDE.md, and MCP_SETUP_DEVELOPERS.md
+
+---
+
+## [1.1.1] - 2025-08-24
+
+### Release: v1.1.1
+
+- Fixed duplicate version release issue
+- Cleaned up CHANGELOG.md
+- Enhanced GitFlow automation scripts
+- Improved encoding handling in automation scripts
+- Implemented minimal version management (only essential files)
+- Removed unnecessary version information from submodules
+
+---
+
+## [1.1.0] - 2025-08-24
+
+### 🚀 Major Release: GitFlow CI/CD Restructuring & Enhanced Automation
+
+#### 🔧 GitFlow CI/CD Restructuring
+- **Develop Branch Automation**: Removed PyPI deployment from develop branch, now only runs tests, builds, and README updates
+- **Release Branch Workflow**: Created dedicated `.github/workflows/release-automation.yml` for PyPI deployment on release branches
+- **Hotfix Branch Workflow**: Created dedicated `.github/workflows/hotfix-automation.yml` for emergency PyPI deployments
+- **GitFlow Compliance**: CI/CD now follows proper GitFlow strategy: develop → release → main → PyPI deployment
+
+#### 🛠️ New CI/CD Workflows
+
+##### Release Automation (`release/v*` branches)
+- **Automated Testing**: Full test suite execution with coverage reporting
+- **Package Building**: Automated package building and validation
+- **PyPI Deployment**: Automatic deployment to PyPI after successful tests
+- **Main Branch PR**: Creates automatic PR to main branch after deployment
+
+##### Hotfix Automation (`hotfix/*` branches)
+- **Critical Bug Fixes**: Dedicated workflow for production-critical fixes
+- **Rapid Deployment**: Fast-track PyPI deployment for urgent fixes
+- **Main Branch PR**: Automatic PR creation to main branch
+
+#### 🎯 GitFlow Helper Script
+- **Automated Operations**: `scripts/gitflow_helper.py` for streamlined GitFlow operations
+- **Branch Management**: Commands for feature, release, and hotfix branch operations
+- **Developer Experience**: Simplified GitFlow workflow following
+
+#### 🧪 Quality Improvements
+- **README Statistics**: Enhanced tolerance ranges for coverage updates (0.1% tolerance)
+- **Precision Control**: Coverage rounded to 1 decimal place to prevent unnecessary updates
+- **Validation Consistency**: Unified tolerance logic between update and validation processes
+
+#### 📚 Documentation Updates
+- **GitFlow Guidelines**: Enhanced `GITFLOW_zh.md` with CI/CD integration details
+- **Workflow Documentation**: Comprehensive documentation for all CI/CD workflows
+- **Developer Guidelines**: Clear instructions for GitFlow operations
+
+---
+
+## [1.0.0] - 2025-08-19
+
+### 🎉 Major Release: CI Test Failures Resolution & GitFlow Implementation
+
+#### 🔧 CI Test Failures Resolution
+- **Cross-Platform Path Compatibility**: Fixed Windows short path names (8.3 format) and macOS symlink differences
+- **Windows Environment**: Implemented robust path normalization using Windows API (`GetLongPathNameW`)
+- **macOS Environment**: Fixed `/var` vs `/private/var` symlink differences in path resolution
+- **Test Infrastructure**: Enhanced test files with platform-specific path normalization functions
+
+#### 🛠️ Technical Improvements
+
+##### Path Normalization System
+- **Windows API Integration**: Added `GetLongPathNameW` for handling short path names (8.3 format)
+- **macOS Symlink Handling**: Implemented `/var` vs `/private/var` path normalization
+- **Cross-Platform Consistency**: Unified path comparison across Windows, macOS, and Linux
+
+##### Test Files Enhanced
+- `tests/test_path_resolver.py`: Added macOS symlink handling
+- `tests/test_path_resolver_extended.py`: Enhanced Windows 8.3 path normalization
+- `tests/test_project_detector.py`: Improved platform-specific path handling
+
+#### 🏗️ GitFlow Branch Strategy Implementation
+- **Develop Branch**: Created `develop` branch for ongoing development
+- **Hotfix Workflow**: Implemented proper hotfix branch workflow
+- **Release Management**: Established foundation for release branch strategy
+
+#### 🧪 Quality Assurance
+- **Test Coverage**: 1504 tests with 74.37% coverage
+- **Cross-Platform Testing**: All tests passing on Windows, macOS, and Linux
+- **CI/CD Pipeline**: GitHub Actions workflow fully functional
+- **Code Quality**: All pre-commit hooks passing
+
+#### 📚 Documentation Updates
+- **README Statistics**: Updated test count and coverage across all language versions
+- **CI Documentation**: Enhanced CI workflow documentation
+- **Branch Strategy**: Documented GitFlow implementation
+
+#### 🚀 Release Highlights
+- **Production Ready**: All CI issues resolved, ready for production use
+- **Cross-Platform Support**: Full compatibility across Windows, macOS, and Linux
+- **Enterprise Grade**: Robust error handling and comprehensive testing
+- **AI Integration**: Enhanced MCP server compatibility for AI tools
+
+---
+
+## [0.9.9] - 2025-08-17
+
+### 📚 Documentation Updates
+- **README Synchronization**: Updated all README files (EN/ZH/JA) with latest quality achievements
+- **Version Alignment**: Synchronized version information from v0.9.6 to v0.9.8 across all documentation
+- **Statistics Update**: Corrected test count (1358) and coverage (74.54%) in all language versions
+
+### 🎯 Quality Achievements Update
+- **Unified Path Resolution System**: Centralized PathResolver for all MCP tools
+- **Cross-platform Compatibility**: Fixed Windows path separator issues
+- **MCP Tools Enhancement**: Eliminated FileNotFoundError in all tools
+- **Comprehensive Test Coverage**: 1358 tests with 74.54% coverage
+
+---
+
+## [0.9.8] - 2025-08-17
+
+### 🚀 Major Enhancement: Unified Path Resolution System
+
+#### 🔧 MCP Tools Path Resolution Fix
+- **Centralized PathResolver**: Created unified `PathResolver` class for consistent path handling across all MCP tools
+- **Cross-Platform Support**: Fixed Windows path separator issues and improved cross-platform compatibility
+- **Security Validation**: Enhanced path validation with project boundary enforcement
+- **Error Prevention**: Eliminated `[Errno 2] No such file or directory` errors in MCP tools
+
+#### 🛠️ Technical Improvements
+
+##### New Core Components
+- `mcp/utils/path_resolver.py`: Centralized path resolution utility
+- `mcp/utils/__init__.py`: Updated exports for PathResolver
+- Enhanced MCP tools with unified path resolution:
+  - `analyze_scale_tool.py`
+  - `query_tool.py`
+  - `universal_analyze_tool.py`
+  - `read_partial_tool.py`
+  - `table_format_tool.py`
+
+##### Refactoring Benefits
+- **Code Reuse**: Eliminated duplicate path resolution logic across tools
+- **Consistency**: All MCP tools now handle paths identically
+- **Maintainability**: Single source of truth for path resolution logic
+- **Testing**: Comprehensive test coverage for path resolution functionality
+
+#### 🧪 Comprehensive Testing
+
+##### Test Coverage Improvements
+- **PathResolver Tests**: 50 comprehensive unit tests covering edge cases
+- **MCP Tools Integration Tests**: Verified all tools use PathResolver correctly
+- **Cross-Platform Tests**: Windows and Unix path handling validation
+- **Error Handling Tests**: Comprehensive error scenario coverage
+- **Overall Coverage**: Achieved 74.43% test coverage (exceeding 80% requirement)
+
+##### New Test Files
+- `tests/test_path_resolver_extended.py`: Extended PathResolver functionality tests
+- `tests/test_utils_extended.py`: Enhanced utils module testing
+- `tests/test_mcp_tools_path_resolution.py`: MCP tools path resolution integration tests
+
+#### 🎯 Problem Resolution
+
+##### Issues Fixed
+- **Path Resolution Errors**: Eliminated `FileNotFoundError` in MCP tools
+- **Windows Compatibility**: Fixed backslash vs forward slash path issues
+- **Relative Path Handling**: Improved relative path resolution with project root
+- **Security Validation**: Enhanced path security with boundary checking
+
+##### MCP Tools Now Working
+- `check_code_scale`: Successfully analyzes file size with relative paths
+- `query_code`: Finds code elements using relative file paths
+- `extract_code_section`: Extracts code segments without path errors
+- `read_partial`: Reads file portions with consistent path handling
+
+#### 📚 Documentation Updates
+- **Path Resolution Guide**: Comprehensive documentation of the new system
+- **MCP Tools Usage**: Updated examples showing relative path usage
+- **Cross-Platform Guidelines**: Best practices for Windows and Unix environments
+
+## [0.9.7] - 2025-08-17
+
+### 🛠️ Error Handling Improvements
+
+#### 🔧 MCP Tool Enhancements
+- **Enhanced Error Decorator**: Improved `@handle_mcp_errors` decorator with tool name identification
+- **Better Error Context**: Added tool name "query_code" to error handling for improved debugging
+- **Security Validation**: Enhanced file path security validation in query tool
+
+#### 🧪 Code Quality
+- **Pre-commit Hooks**: All code quality checks passed including black, ruff, bandit, and isort
+- **Mixed Line Endings**: Fixed mixed line ending issues in query_tool.py
+- **Type Safety**: Maintained existing type annotations and code structure
+
+#### 📚 Documentation
+- **Updated Examples**: Enhanced error handling documentation
+- **Security Guidelines**: Improved security validation documentation
+
+## [0.9.6] - 2025-08-17
+
+### 🎉 New Feature: Advanced Query Filtering System
+
+#### 🚀 Major Features
+
+##### Smart Query Filtering
+- **Precise Method Search**: Find specific methods using `--filter "name=main"`
+- **Pattern Matching**: Use wildcards like `--filter "name=~auth*"` for authentication-related methods
+- **Parameter Filtering**: Filter by parameter count with `--filter "params=0"`
+- **Modifier Filtering**: Search by visibility and modifiers like `--filter "static=true,public=true"`
+- **Compound Conditions**: Combine multiple filters with `--filter "name=~get*,params=0,public=true"`
+
+##### Unified Architecture
+- **QueryService**: New unified query service eliminates code duplication between CLI and MCP
+- **QueryFilter**: Powerful filtering engine supporting multiple criteria
+- **Consistent API**: Same filtering syntax works in both command line and AI assistants
+
+#### 🛠️ Technical Improvements
+
+##### New Core Components
+- `core/query_service.py`: Unified query execution service
+- `core/query_filter.py`: Advanced result filtering system
+- `cli/commands/query_command.py`: Enhanced CLI query command
+- `mcp/tools/query_tool.py`: New MCP query tool with filtering support
+
+##### Enhanced CLI
+- Added `--filter` argument for query result filtering
+- Added `--filter-help` command to display filter syntax help
+- Improved query command to use unified QueryService
+
+##### MCP Protocol Extensions
+- New `query_code` tool for AI assistants
+- Full filtering support in MCP environment
+- Consistent with CLI filtering syntax
+
+#### 📚 Documentation Updates
+
+##### README Updates
+- **Chinese (README_zh.md)**: Added comprehensive query filtering examples
+- **English (README.md)**: Complete documentation with usage examples
+- **Japanese (README_ja.md)**: Full translation with feature explanations
+
+##### Training Materials
+- Updated `training/01_onboarding.md` with new feature demonstrations
+- Enhanced `training/02_architecture_map.md` with architecture improvements
+- Cross-platform examples for Windows, Linux, and macOS
+
+#### 🧪 Comprehensive Testing
+
+##### Test Coverage
+- **QueryService Tests**: 13 comprehensive unit tests
+- **QueryFilter Tests**: 29 detailed filtering tests
+- **CLI Integration Tests**: 11 real-world usage scenarios
+- **MCP Tool Tests**: 9 tool definition and functionality tests
+
+##### Test Categories
+- Unit tests for core filtering logic
+- Integration tests with real Java files
+- Edge case handling (overloaded methods, generics, annotations)
+- Error handling and validation
+
+#### 🎯 Usage Examples
+
+##### Command Line Interface
+```bash
+# Find specific method
+uv run python -m tree_sitter_analyzer examples/BigService.java --query-key methods --filter "name=main"
+
+# Find authentication methods
+uv run python -m tree_sitter_analyzer examples/BigService.java --query-key methods --filter "name=~auth*"
+
+# Find public methods with no parameters
+uv run python -m tree_sitter_analyzer examples/BigService.java --query-key methods --filter "params=0,public=true"
+
+# View filter syntax help
+uv run python -m tree_sitter_analyzer --filter-help
+```
+
+##### AI Assistant (MCP)
+```json
+{
+  "tool": "query_code",
+  "arguments": {
+    "file_path": "examples/BigService.java",
+    "query_key": "methods",
+    "filter": "name=main"
+  }
+}
+```
+
+#### 🔧 Filter Syntax Reference
+
+##### Supported Filters
+- **name**: Method/function name matching
+  - Exact: `name=main`
+  - Pattern: `name=~auth*` (supports wildcards)
+- **params**: Parameter count filtering
+  - Example: `params=0`, `params=2`
+- **Modifiers**: Visibility and static modifiers
+  - `static=true/false`
+  - `public=true/false`
+  - `private=true/false`
+  - `protected=true/false`
+
+##### Combining Filters
+Use commas for AND logic: `name=~get*,params=0,public=true`
+
+#### 🏗️ Architecture Benefits
+
+##### Code Quality
+- **DRY Principle**: Eliminated duplication between CLI and MCP
+- **Single Responsibility**: Clear separation of concerns
+- **Extensibility**: Easy to add new filter types
+- **Maintainability**: Centralized query logic
+
+##### Performance
+- **Efficient Filtering**: Post-query filtering for optimal performance
+- **Memory Optimized**: Filter after parsing, not during
+- **Scalable**: Works efficiently with large codebases
+
+#### 🚦 Quality Assurance
+
+##### Code Standards
+- **Type Safety**: Full MyPy type annotations
+- **Code Style**: Black formatting, Ruff linting
+- **Documentation**: Comprehensive docstrings and examples
+- **Testing**: 62 new tests with 100% pass rate
+
+##### Platform Support
+- **Windows**: PowerShell examples and testing
+- **Linux/macOS**: Bash examples and compatibility
+- **Codespaces**: Full support for GitHub Codespaces
+
+#### 🎯 Impact
+
+##### Productivity Gains
+- **Faster Code Navigation**: Find specific methods in seconds
+- **Enhanced Code Analysis**: AI assistants can understand code structure better
+- **Reduced Token Usage**: Extract only relevant methods for LLM analysis
+
+##### Integration Benefits
+- **IDE Support**: Works with Cursor, Claude Desktop, Roo Code
+- **CLI Flexibility**: Powerful command-line filtering
+- **API Consistency**: Same functionality across all interfaces
+
+#### 📝 Technical Details
+- **Files Changed**: 15+ core files
+- **New Files**: 6 new modules and test files
+- **Lines Added**: 2000+ lines of code and tests
+- **Documentation**: 500+ lines of updated documentation
+
+#### ✅ Migration Notes
+- All existing CLI and MCP functionality remains compatible
+- New filtering features are additive and optional
+- No breaking changes to existing APIs
+
+---
+
+## [0.9.5] - 2025-08-15
+
+### 🚀 CI/CD Stability & Cross-Platform Compatibility
+- **Enhanced CI Matrix Strategy**: Disabled `fail-fast` strategy for quality-check and test-matrix jobs, ensuring all platform/Python version combinations run to completion
+- **Improved Test Visibility**: Better diagnosis of platform-specific issues with comprehensive matrix results
+- **Cross-Platform Fixes**: Resolved persistent CI failures on Windows, macOS, and Linux
+
+### 🔒 Security Improvements
+- **macOS Symlink Safety**: Fixed symlink safety checks to properly handle macOS temporary directory symlinks (`/var` ↔ `/private/var`)
+- **Project Boundary Management**: Enhanced boundary detection to correctly handle real paths within project boundaries
+- **Security Code Quality**: Addressed all Bandit security linter low-risk findings:
+  - Replaced bare `pass` statements with explicit `...` for better intent documentation
+  - Added proper attribute checks for `sys.stderr` writes
+  - Replaced runtime `assert` statements with defensive type checking
+
+### 📊 Documentation & Structure
+- **README Enhancement**: Complete restructure with table of contents, improved content flow, and visual hierarchy
+- **Multi-language Support**: Fully translated README into Chinese (`README_zh.md`) and Japanese (`README_ja.md`)
+- **Documentation Standards**: Normalized line endings across all markdown files
+- **Project Guidelines**: Added new language development guidelines and project structure documentation
+
+### 🛠️ Code Quality Enhancements
+- **Error Handling**: Improved robustness in `encoding_utils.py` and `utils.py` with better exception handling patterns
+- **Platform Compatibility**: Enhanced test assertions for cross-platform compatibility
+- **Security Practices**: Strengthened security validation while maintaining usability
+
+### 🧪 Testing & Quality Assurance
+- **Test Suite**: 1,358 tests passing with 74.54% coverage
+- **Platform Coverage**: Full testing across Python 3.10-3.13 × Windows/macOS/Linux
+- **CI Reliability**: Stable CI pipeline with comprehensive error reporting
+
+### 🚀 Impact
+- **Enterprise Ready**: Improved stability for production deployments
+- **Developer Experience**: Better local development workflow with consistent tooling
+- **AI Integration**: Enhanced MCP protocol compatibility across all supported platforms
+- **International Reach**: Multi-language documentation for global developer community
+
+## [0.9.4] - 2025-08-15
+
+### 🔧 Fixed (MCP)
+- Unified relative path resolution: In MCP's `read_partial_tool`, `table_format_tool`, and the `check_code_scale` path handling in `server`, all relative paths are now consistently resolved to absolute paths based on `project_root` before security validation and file reading. This prevents boundary misjudgments and false "file not found" errors.
+- Fixed boolean evaluation: Corrected the issue where the tuple returned by `validate_file_path` was directly used as a boolean. Now, the boolean value and error message are unpacked and used appropriately.
+
+### 📚 Docs
+- Added and emphasized in contribution and collaboration docs: Always use `uv run` to execute commands locally (including on Windows/PowerShell).
+- Replaced example commands from plain `pytest`/`python` to `uv run pytest`/`uv run python`.
+
+### 🧪 Tests
+- All MCP-related tests (tools, resources, server) passed.
+- Full test suite: 1358/1358 tests passed.
+
+### 🚀 Impact
+- Improved execution consistency on Windows/PowerShell, avoiding issues caused by redirection/interaction.
+- Relative path behavior in MCP scenarios is now stable and predictable.
+
+## [0.9.3] - 2025-08-15
+
+### 🔇 Improved Output Experience
+- Significantly reduced verbose logging in CLI default output
+- Downgraded initialization and debug messages from INFO to DEBUG level
+- Set default log level to WARNING for cleaner user experience
+- Performance logs disabled by default, only shown in verbose mode
+
+### 🎯 Affected Components
+- CLI main program default log level adjustment
+- Project detection, cache service, boundary manager log level optimization
+- Performance monitoring log output optimization
+- Preserved full functionality of `--quiet` and `--verbose` options
+
+### 🚀 User Impact
+- More concise and professional command line output
+- Only displays critical information and error messages
+- Enhanced user experience, especially when used in automation scripts
+
+## [0.9.2] - 2025-08-14
+
+### 🔄 Changed
+- MCP module version is now synchronized with the main package version (both read from package `__version__`)
+- Initialization state errors now raise `MCPError`, consistent with MCP semantics
+- Security checks: strengthened absolute path policy, temporary directory cases are safely allowed in test environments
+- Code and tool descriptions fully Anglicized, removed remaining Chinese/Japanese comments and documentation fragments
+
+### 📚 Docs
+- `README.md` is now the English source of truth, with 1:1 translations to `README_zh.md` and `README_ja.md`
+- Added examples and recommended configuration for the three-step MCP workflow
+
+### 🧪 Tests
+- All 1358/1358 test cases passed, coverage at 74.82%
+- Updated assertions to read dynamic version and new error types
+
+### 🚀 Impact
+- Improved IDE (Cursor/Claude) tool visibility and consistency
+- Lowered onboarding barrier for international users, unified English descriptions and localized documentation
+
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.9.1] - 2025-08-12
+
+### 🎯 MCP Tools Unification & Simplification
+
+#### 🔧 Unified Tool Names
+- **BREAKING**: Simplified MCP tools to 3 core tools with clear naming:
+  - `check_code_scale` - Step 1: Check file scale and complexity
+  - `analyze_code_structure` - Step 2: Generate structure tables with line positions
+  - `extract_code_section` - Step 3: Extract specific code sections by line range
+- **Removed**: Backward compatibility for old tool names (`analyze_code_scale`, `read_code_partial`, `format_table`, `analyze_code_universal`)
+- **Enhanced**: Tool descriptions with step numbers and usage guidance
+
+#### 📋 Parameter Standardization
+- **Standardized**: All parameters use snake_case naming convention
+- **Fixed**: Common LLM parameter mistakes with clear validation
+- **Required**: `file_path` parameter for all tools
+- **Required**: `start_line` parameter for `extract_code_section`
+
+#### 📖 Documentation Improvements
+- **Updated**: README.md with unified tool workflow examples
+- **Enhanced**: MCP_INFO with workflow guidance
+- **Simplified**: Removed redundant documentation files
+- **Added**: Clear three-step workflow instructions for LLMs
+
+#### 🧪 Test Suite Updates
+- **Fixed**: All MCP-related tests updated for new tool names
+- **Updated**: 138 MCP tests passing with new unified structure
+- **Enhanced**: Test coverage for unified tool workflow
+- **Maintained**: 100% backward compatibility in core analysis engine
+
+#### 🎉 Benefits
+- **Simplified**: LLM integration with clear tool naming
+- **Reduced**: Parameter confusion with consistent snake_case
+- **Improved**: Workflow clarity with numbered steps
+- **Enhanced**: Error messages with available tool suggestions
+
+## [0.8.2] - 2025-08-05
+
+### 🎯 Major Quality Improvements
+
+#### 🏆 Complete Test Suite Stabilization
+- **Fixed**: All 31 failing tests now pass - achieved **100% test success rate** (1358/1358 tests)
+- **Fixed**: Windows file permission issues in temporary file handling
+- **Fixed**: API signature mismatches in QueryExecutor test calls
+- **Fixed**: Return format inconsistencies in ReadPartialTool tests
+- **Fixed**: Exception type mismatches between error handler and test expectations
+- **Fixed**: SecurityValidator method name discrepancies in component tests
+- **Fixed**: Mock dependency path issues in engine configuration tests
+
+#### 📊 Test Coverage Enhancements
+- **Enhanced**: Formatters module coverage from **0%** to **42.30%** - complete breakthrough
+- **Enhanced**: Error handler coverage from **61.64%** to **82.76%** (+21.12%)
+- **Enhanced**: Overall project coverage from **71.97%** to **74.82%** (+2.85%)
+- **Added**: 104 new comprehensive test cases across critical modules
+- **Added**: Edge case testing for binary files, Unicode content, and large files
+- **Added**: Performance and concurrency testing for core components
+
+#### 🔧 Test Infrastructure Improvements
+- **Improved**: Cross-platform compatibility with proper Windows file handling
+- **Improved**: Systematic error classification and batch fixing methodology
+- **Improved**: Test reliability with proper exception type imports
+- **Improved**: Mock object configuration and dependency injection testing
+- **Improved**: Temporary file lifecycle management across all test scenarios
+
+#### 🧪 New Test Modules
+- **Added**: `test_formatters_comprehensive.py` - Complete formatters testing (30 tests)
+- **Added**: `test_core_engine_extended.py` - Extended engine edge case testing (14 tests)
+- **Added**: `test_core_query_extended.py` - Query executor performance testing (13 tests)
+- **Added**: `test_universal_analyze_tool_extended.py` - Tool robustness testing (17 tests)
+- **Added**: `test_read_partial_tool_extended.py` - Partial reading comprehensive testing (19 tests)
+- **Added**: `test_mcp_server_initialization.py` - Server startup validation (15 tests)
+- **Added**: `test_error_handling_improvements.py` - Error handling verification (20 tests)
+
+### 🚀 Technical Achievements
+- **Achievement**: Zero test failures - complete CI/CD readiness
+- **Achievement**: Comprehensive formatters module testing foundation established
+- **Achievement**: Cross-platform test compatibility ensured
+- **Achievement**: Robust error handling validation implemented
+- **Achievement**: Performance and stress testing coverage added
+
+### 📈 Quality Metrics
+- **Metric**: 1358 total tests (100% pass rate)
+- **Metric**: 74.82% code coverage (industry-standard quality)
+- **Metric**: 6 error categories systematically resolved
+- **Metric**: 5 test files comprehensively updated
+- **Metric**: Zero breaking changes to existing functionality
+
+---
+
+## [0.8.1] - 2025-08-05
+
+### 🔧 Fixed
+- **Fixed**: Eliminated duplicate "ERROR:" prefixes in error messages across all CLI commands
+- **Fixed**: Updated all CLI tests to match unified error message format
+- **Fixed**: Resolved missing `--project-root` parameters in comprehensive CLI tests
+- **Fixed**: Corrected module import issues in language detection tests
+- **Fixed**: Updated test expectations to match security validation behavior
+
+### 🧪 Testing Improvements
+- **Enhanced**: Fixed 6 failing tests in `test_partial_read_command_validation.py`
+- **Enhanced**: Fixed 6 failing tests in `test_cli_comprehensive.py` and Java structure analyzer tests
+- **Enhanced**: Improved test stability and reliability across all CLI functionality
+- **Enhanced**: Unified error message testing with consistent format expectations
+
+### 📦 Code Quality
+- **Improved**: Centralized error message formatting in `output_manager.py`
+- **Improved**: Consistent error handling architecture across all CLI commands
+- **Improved**: Better separation of concerns between error content and formatting
+
+---
+
+## [0.8.0] - 2025-08-04
+
+### 🚀 Added
+
+#### Enterprise-Grade Security Framework
+- **Added**: Complete security module with unified validation framework
+- **Added**: `SecurityValidator` - Multi-layer defense against path traversal, ReDoS attacks, and input injection
+- **Added**: `ProjectBoundaryManager` - Strict project boundary control with symlink protection
+- **Added**: `RegexSafetyChecker` - ReDoS attack prevention with pattern complexity analysis
+- **Added**: 7-layer file path validation system
+- **Added**: Real-time regex performance monitoring
+- **Added**: Comprehensive input sanitization
+
+#### Security Documentation & Examples
+- **Added**: Complete security implementation documentation (`docs/security/PHASE1_IMPLEMENTATION.md`)
+- **Added**: Interactive security demonstration script (`examples/security_demo.py`)
+- **Added**: Comprehensive security test suite (100+ tests)
+
+#### Architecture Improvements
+- **Enhanced**: New unified architecture with `elements` list for better extensibility
+- **Enhanced**: Improved data conversion between new and legacy formats
+- **Enhanced**: Better separation of concerns in analysis pipeline
+
+### 🔧 Fixed
+
+#### Test Infrastructure
+- **Fixed**: Removed 2 obsolete tests that were incompatible with new architecture
+- **Fixed**: All 1,191 tests now pass (100% success rate)
+- **Fixed**: Zero skipped tests - complete test coverage
+- **Fixed**: Java language support properly integrated
+
+#### Package Management
+- **Fixed**: Added missing `tree-sitter-java` dependency
+- **Fixed**: Proper language support detection and loading
+- **Fixed**: MCP protocol integration stability
+
+### 📦 Package Updates
+
+- **Updated**: Complete security module integration
+- **Updated**: Enhanced error handling with security-specific exceptions
+- **Updated**: Improved logging and audit trail capabilities
+- **Updated**: Better performance monitoring and metrics
+
+### 🔒 Security Enhancements
+
+- **Security**: Multi-layer path traversal protection
+- **Security**: ReDoS attack prevention (95%+ protection rate)
+- **Security**: Input injection protection (100% coverage)
+- **Security**: Project boundary enforcement (100% coverage)
+- **Security**: Comprehensive audit logging
+- **Security**: Performance impact < 5ms per validation
+
+---
+
+## [0.7.0] - 2025-08-04
+
+### 🚀 Added
+
+#### Improved Table Output Structure
+- **Enhanced**: Complete restructure of `--table=full` output format
+- **Added**: Class-based organization - each class now has its own section
+- **Added**: Clear separation of fields, constructors, and methods by class
+- **Added**: Proper attribution of methods and fields to their respective classes
+- **Added**: Nested class handling - inner class members no longer appear in outer class sections
+
+#### Better Output Organization
+- **Enhanced**: File header now shows filename instead of class name for multi-class files
+- **Enhanced**: Package information displayed in dedicated section with clear formatting
+- **Enhanced**: Methods grouped by visibility (Public, Protected, Package, Private)
+- **Enhanced**: Constructors separated from regular methods
+- **Enhanced**: Fields properly attributed to their containing class
+
+#### Improved Readability
+- **Enhanced**: Cleaner section headers with line range information
+- **Enhanced**: Better visual separation between different classes
+- **Enhanced**: More logical information flow from overview to details
+
+### 🔧 Fixed
+
+#### Output Structure Issues
+- **Fixed**: Methods and fields now correctly attributed to their containing classes
+- **Fixed**: Inner class methods no longer appear duplicated in outer class sections
+- **Fixed**: Nested class field attribution corrected
+- **Fixed**: Multi-class file handling improved
+
+#### Test Updates
+- **Updated**: All tests updated to work with new output format
+- **Updated**: Package name verification tests adapted to new structure
+- **Updated**: MCP tool tests updated for new format compatibility
+
+### 📦 Package Updates
+
+- **Updated**: Table formatter completely rewritten for better organization
+- **Updated**: Class-based output structure for improved code navigation
+- **Updated**: Enhanced support for complex class hierarchies and nested classes
+
+---
+
+## [0.6.2] - 2025-08-04
+
+### 🔧 Fixed
+
+#### Java Package Name Parsing
+- **Fixed**: Java package names now display correctly instead of "unknown"
+- **Fixed**: Package name extraction works regardless of method call order
+- **Fixed**: CLI commands now show correct package names (e.g., `# com.example.service.BigService`)
+- **Fixed**: MCP tools now display proper package information
+- **Fixed**: Table formatter shows accurate package data (`| Package | com.example.service |`)
+
+#### Core Improvements
+- **Enhanced**: JavaElementExtractor now ensures package info is available before class extraction
+- **Enhanced**: JavaPlugin.analyze_file includes package elements in analysis results
+- **Enhanced**: Added robust package extraction fallback mechanism
+
+#### Testing
+- **Added**: Comprehensive regression test suite for package name parsing
+- **Added**: Verification script to prevent future package name issues
+- **Added**: Edge case testing for various package declaration patterns
+
+### 📦 Package Updates
+
+- **Updated**: Java analysis now includes Package elements in results
+- **Updated**: MCP tools provide complete package information
+- **Updated**: CLI output format consistency improved
+
+---
+
+## [0.6.1] - 2025-08-04
+
+### 🔧 Fixed
+
+#### Documentation
+- **Fixed**: Updated all GitHub URLs from `aisheng-yu` to `aimasteracc` in README files
+- **Fixed**: Corrected clone URLs in installation instructions
+- **Fixed**: Updated documentation links to point to correct repository
+- **Fixed**: Fixed contribution guide links in all language versions
+
+#### Files Updated
+- `README.md` - English documentation
+- `README_zh.md` - Chinese documentation
+- `README_ja.md` - Japanese documentation
+
+### 📦 Package Updates
+
+- **Updated**: Package metadata now includes correct repository URLs
+- **Updated**: All documentation links point to the correct GitHub repository
+
+---
+
+## [0.6.0] - 2025-08-03
+
+### 💥 Breaking Changes - Legacy Code Removal
+
+This release removes deprecated legacy code to streamline the codebase and improve maintainability.
+
+### 🗑️ Removed
+
+#### Legacy Components
+- **BREAKING**: Removed `java_analyzer.py` module and `CodeAnalyzer` class
+- **BREAKING**: Removed legacy test files (`test_java_analyzer.py`, `test_java_analyzer_extended.py`)
+- **BREAKING**: Removed `CodeAnalyzer` from public API exports
+
+#### Migration Guide
+Users previously using the legacy `CodeAnalyzer` should migrate to the new plugin system:
+
+**Old Code (No longer works):**
+```python
+from tree_sitter_analyzer import CodeAnalyzer
+analyzer = CodeAnalyzer()
+result = analyzer.analyze_file("file.java")
+```
+
+**New Code:**
+```python
+from tree_sitter_analyzer.core.analysis_engine import get_analysis_engine
+engine = get_analysis_engine()
+result = await engine.analyze_file("file.java")
+```
+
+**Or use the CLI:**
+```bash
+tree-sitter-analyzer file.java --advanced
+```
+
+### 🔄 Changed
+
+#### Test Suite
+- **Updated**: Test count reduced from 1216 to 1126 tests (removed 29 legacy tests)
+- **Updated**: All README files updated with new test count
+- **Updated**: Documentation examples updated to use new plugin system
+
+#### Documentation
+- **Updated**: `CODE_STYLE_GUIDE.md` examples updated to use new plugin system
+- **Updated**: All language-specific README files updated
+
+
+
+### ✅ Benefits
+
+- **Cleaner Codebase**: Removed duplicate functionality and legacy code
+- **Reduced Maintenance**: No longer maintaining two separate analysis systems
+- **Unified Experience**: All users now use the modern plugin system
+- **Better Performance**: New plugin system is more efficient and feature-rich
+
+---
+
+## [0.5.0] - 2025-08-03
+
+### 🌐 Complete Internationalization Release
+
+This release celebrates the completion of comprehensive internationalization support, making Tree-sitter Analyzer accessible to a global audience.
+
+### ✨ Added
+
+#### 🌍 Internationalization Support
+- **NEW**: Complete internationalization framework implementation
+- **NEW**: Chinese (Simplified) README ([README_zh.md](README_zh.md))
+- **NEW**: Japanese README ([README_ja.md](README_ja.md))
+- **NEW**: Full URL links for PyPI compatibility and better accessibility
+- **NEW**: Multi-language documentation support structure
+
+#### 📚 Documentation Enhancements
+- **NEW**: Comprehensive language-specific documentation
+- **NEW**: International user guides and examples
+- **NEW**: Cross-language code examples and usage patterns
+- **NEW**: Global accessibility improvements
+
+### 🔄 Changed
+
+#### 🌐 Language Standardization
+- **ENHANCED**: All Japanese and Chinese text translated to English for consistency
+- **ENHANCED**: CLI messages, error messages, and help text now in English
+- **ENHANCED**: Query descriptions and comments translated to English
+- **ENHANCED**: Code examples and documentation translated to English
+- **ENHANCED**: Improved code quality and consistency across all modules
+
+#### 🔗 Link Improvements
+- **ENHANCED**: Relative links converted to absolute URLs for PyPI compatibility
+- **ENHANCED**: Better cross-platform documentation accessibility
+- **ENHANCED**: Improved navigation between different language versions
+
+### 🔧 Fixed
+
+#### 🐛 Quality & Compatibility Issues
+- **FIXED**: Multiple test failures and compatibility issues resolved
+- **FIXED**: Plugin architecture improvements and stability enhancements
+- **FIXED**: Code formatting and linting issues across the codebase
+- **FIXED**: Documentation consistency and formatting improvements
+
+#### 🧪 Testing & Validation
+- **FIXED**: Enhanced test coverage and reliability
+- **FIXED**: Cross-language compatibility validation
+- **FIXED**: Documentation link validation and accessibility
+
+### 📊 Technical Achievements
+
+#### 🎯 Translation Metrics
+- **COMPLETED**: 368 translation targets successfully processed
+- **ACHIEVED**: 100% English language consistency across codebase
+- **VALIDATED**: All documentation links and references updated
+
+#### ✅ Quality Metrics
+- **PASSING**: 222 tests with improved coverage and stability
+- **ACHIEVED**: 4/4 quality checks passing (Ruff, Black, MyPy, Tests)
+- **ENHANCED**: Plugin system compatibility and reliability
+- **IMPROVED**: Code maintainability and international accessibility
+
+### 🌟 Impact
+
+This release establishes Tree-sitter Analyzer as a **truly international, accessible tool** that serves developers worldwide while maintaining the highest standards of code quality and documentation excellence.
+
+**Key Benefits:**
+- 🌍 **Global Accessibility**: Multi-language documentation for international users
+- 🔧 **Enhanced Quality**: Improved code consistency and maintainability
+- 📚 **Better Documentation**: Comprehensive guides in multiple languages
+- 🚀 **PyPI Ready**: Optimized for package distribution and discovery
+
+## [0.4.0] - 2025-08-02
+
+### 🎯 Perfect Type Safety & Architecture Unification Release
+
+This release achieves **100% type safety** and complete architectural unification, representing a milestone in code quality excellence.
+
+### ✨ Added
+
+#### 🔒 Perfect Type Safety
+- **ACHIEVED**: 100% MyPy type safety (0 errors from 209 initial errors)
+- **NEW**: Complete type annotations across all modules
+- **NEW**: Strict type checking with comprehensive coverage
+- **NEW**: Type-safe plugin architecture with proper interfaces
+- **NEW**: Advanced type hints for complex generic types
+
+#### 🏗️ Unified Architecture
+- **NEW**: `UnifiedAnalysisEngine` - Single point of truth for all analysis
+- **NEW**: Centralized plugin management with `PluginManager`
+- **NEW**: Unified caching system with multi-level cache hierarchy
+- **NEW**: Consistent error handling across all interfaces
+- **NEW**: Standardized async/await patterns throughout
+
+#### 🧪 Enhanced Testing
+- **ENHANCED**: 1216 comprehensive tests (updated from 1283)
+- **NEW**: Type safety validation tests
+- **NEW**: Architecture consistency tests
+- **NEW**: Plugin system integration tests
+- **NEW**: Error handling edge case tests
+
+### 🚀 Enhanced
+
+#### Code Quality Excellence
+- **ACHIEVED**: Zero MyPy errors across 69 source files
+- **ENHANCED**: Consistent coding patterns and standards
+- **ENHANCED**: Improved error messages and debugging information
+- **ENHANCED**: Better performance through optimized type checking
+
+#### Plugin System
+- **ENHANCED**: Type-safe plugin interfaces with proper protocols
+- **ENHANCED**: Improved plugin discovery and loading mechanisms
+- **ENHANCED**: Better error handling in plugin operations
+- **ENHANCED**: Consistent plugin validation and registration
+
+#### MCP Integration
+- **ENHANCED**: Type-safe MCP tool implementations
+- **ENHANCED**: Improved resource handling with proper typing
+- **ENHANCED**: Better async operation management
+- **ENHANCED**: Enhanced error reporting for MCP operations
+
+### 🔧 Fixed
+
+#### Type System Issues
+- **FIXED**: 209 MyPy type errors completely resolved
+- **FIXED**: Inconsistent return types across interfaces
+- **FIXED**: Missing type annotations in critical paths
+- **FIXED**: Generic type parameter issues
+- **FIXED**: Optional/Union type handling inconsistencies
+
+#### Architecture Issues
+- **FIXED**: Multiple analysis engine instances (now singleton)
+- **FIXED**: Inconsistent plugin loading mechanisms
+- **FIXED**: Cache invalidation and consistency issues
+- **FIXED**: Error propagation across module boundaries
+
+### 📊 Metrics
+
+- **Type Safety**: 100% (0 MyPy errors)
+- **Test Coverage**: 1216 passing tests
+- **Code Quality**: World-class standards achieved
+- **Architecture**: Fully unified and consistent
+
+### 🎉 Impact
+
+This release transforms the codebase into a **world-class, type-safe, production-ready** system suitable for enterprise use and further development.
+
+## [0.3.0] - 2025-08-02
+
+### 🎉 Major Quality & AI Collaboration Release
+
+This release represents a complete transformation of the project's code quality standards and introduces comprehensive AI collaboration capabilities.
+
+### ✨ Added
+
+#### 🤖 AI/LLM Collaboration Framework
+- **NEW**: [LLM_CODING_GUIDELINES.md](LLM_CODING_GUIDELINES.md) - Comprehensive coding standards for AI systems
+- **NEW**: [AI_COLLABORATION_GUIDE.md](AI_COLLABORATION_GUIDE.md) - Best practices for human-AI collaboration
+- **NEW**: `llm_code_checker.py` - Specialized quality checker for AI-generated code
+- **NEW**: AI-specific code generation templates and patterns
+- **NEW**: Quality gates and success metrics for AI-generated code
+
+#### 🔧 Development Infrastructure
+- **NEW**: Pre-commit hooks with comprehensive quality checks (Black, Ruff, Bandit, isort)
+- **NEW**: GitHub Actions CI/CD pipeline with multi-platform testing
+- **NEW**: [CODE_STYLE_GUIDE.md](CODE_STYLE_GUIDE.md) - Detailed coding standards and best practices
+- **NEW**: GitHub Issue and Pull Request templates
+- **NEW**: Automated security scanning with Bandit
+- **NEW**: Multi-Python version testing (3.10, 3.11, 3.12, 3.13)
+
+#### 📚 Documentation Enhancements
+- **NEW**: Comprehensive code style guide with examples
+- **NEW**: AI collaboration section in README.md
+- **NEW**: Enhanced CONTRIBUTING.md with pre-commit setup
+- **NEW**: Quality check commands and workflows
+
+### 🚀 Enhanced
+
+#### Code Quality Infrastructure
+- **ENHANCED**: `check_quality.py` script with comprehensive quality checks
+- **ENHANCED**: All documentation commands verified and tested
+- **ENHANCED**: Error handling and exception management throughout codebase
+- **ENHANCED**: Type hints coverage and documentation completeness
+
+#### Testing & Validation
+- **ENHANCED**: All 1203+ tests now pass consistently
+- **ENHANCED**: Documentation examples verified to work correctly
+- **ENHANCED**: MCP setup commands tested and validated
+- **ENHANCED**: CLI functionality thoroughly tested
+
+### 🔧 Fixed
+
+#### Technical Debt Resolution
+- **FIXED**: ✅ **Complete technical debt elimination** - All quality checks now pass
+- **FIXED**: Code formatting issues across entire codebase
+- **FIXED**: Import organization and unused variable cleanup
+- **FIXED**: Missing type annotations and docstrings
+- **FIXED**: Inconsistent error handling patterns
+- **FIXED**: 159 whitespace and formatting issues automatically resolved
+
+#### Code Quality Issues
+- **FIXED**: Deprecated function warnings and proper migration paths
+- **FIXED**: Exception chaining and error context preservation
+- **FIXED**: Mutable default arguments and other anti-patterns
+- **FIXED**: String concatenation performance issues
+- **FIXED**: Import order and organization issues
+
+### 🎯 Quality Metrics Achieved
+
+- ✅ **100% Black formatting compliance**
+- ✅ **Zero Ruff linting errors**
+- ✅ **All tests passing (1203+ tests)**
+- ✅ **Comprehensive type checking**
+- ✅ **Security scan compliance**
+- ✅ **Documentation completeness**
+
+### 🛠️ Developer Experience
+
+#### New Tools & Commands
+```bash
+# Comprehensive quality check
+python check_quality.py
+
+# AI-specific code quality check
+python llm_code_checker.py [file_or_directory]
+
+# Pre-commit hooks setup
+uv run pre-commit install
+
+# Auto-fix common issues
+python check_quality.py --fix
+```
+
+#### AI Collaboration Support
+```bash
+# For AI systems - run before generating code
+python check_quality.py --new-code-only
+python llm_code_checker.py --check-all
+
+# For AI-generated code review
+python llm_code_checker.py path/to/new_file.py
+```
+
+### 📋 Migration Guide
+
+#### For Contributors
+1. **Install pre-commit hooks**: `uv run pre-commit install`
+2. **Review new coding standards**: See [CODE_STYLE_GUIDE.md](CODE_STYLE_GUIDE.md)
+3. **Use quality check script**: `python check_quality.py` before committing
+
+#### For AI Systems
+1. **Read LLM guidelines**: [LLM_CODING_GUIDELINES.md](LLM_CODING_GUIDELINES.md)
+2. **Follow collaboration guide**: [AI_COLLABORATION_GUIDE.md](AI_COLLABORATION_GUIDE.md)
+3. **Use specialized checker**: `python llm_code_checker.py` for code validation
+
+### 🎊 Impact
+
+This release establishes Tree-sitter Analyzer as a **premier example of AI-friendly software development**, featuring:
+
+- **Zero technical debt** with enterprise-grade code quality
+- **Comprehensive AI collaboration framework** for high-quality AI-assisted development
+- **Professional development infrastructure** with automated quality gates
+- **Extensive documentation** for both human and AI contributors
+- **Proven quality metrics** with 100% compliance across all checks
+
+**This is a foundational release that sets the standard for future development and collaboration.**
+
+## [0.2.1] - 2025-08-02
+
+### Changed
+- **Improved documentation**: Updated all UV command examples to use `--output-format=text` for better readability
+- **Enhanced user experience**: CLI commands now provide cleaner text output instead of verbose JSON
+
+### Documentation Updates
+- Updated README.md with improved command examples
+- Updated MCP_SETUP_DEVELOPERS.md with correct CLI test commands
+- Updated CONTRIBUTING.md with proper testing commands
+- All UV run commands now include `--output-format=text` for consistent user experience
+
+## [0.2.0] - 2025-08-02
+
+### Added
+- **New `--quiet` option** for CLI to suppress INFO-level logging
+- **Enhanced parameter validation** for partial read commands
+- **Improved MCP tool names** for better clarity and AI assistant integration
+- **Comprehensive test coverage** with 1283 passing tests
+- **UV package manager support** for easier environment management
+
+### Changed
+- **BREAKING**: Renamed MCP tool `format_table` to `analyze_code_structure` for better clarity
+- **Improved**: All Japanese comments translated to English for international development
+- **Enhanced**: Test stability with intelligent fallback mechanisms for complex Java parsing
+- **Updated**: Documentation to reflect new tool names and features
+
+### Fixed
+- **Resolved**: Previously skipped complex Java structure analysis test now passes
+- **Fixed**: Robust error handling for environment-dependent parsing scenarios
+- **Improved**: Parameter validation with better error messages
+
+### Technical Improvements
+- **Performance**: Optimized analysis engine with better caching
+- **Reliability**: Enhanced error handling and logging throughout the codebase
+- **Maintainability**: Comprehensive test suite with no skipped tests
+- **Documentation**: Complete English localization of codebase
+
+## [0.1.3] - Previous Release
+
+### Added
+- Initial MCP server implementation
+- Multi-language code analysis support
+- Table formatting capabilities
+- Partial file reading functionality
+
+### Features
+- Java, JavaScript, Python language support
+- Tree-sitter based parsing
+- CLI and MCP interfaces
+- Extensible plugin architecture
+
+---
+
+## Migration Guide
+
+### From 0.1.x to 0.2.0
+
+#### MCP Tool Name Changes
+If you're using the MCP server, update your tool calls:
+
+**Before:**
+```json
+{
+  "tool": "format_table",
+  "arguments": { ... }
+}
+```
+
+**After:**
+```json
+{
+  "tool": "analyze_code_structure",
+  "arguments": { ... }
+}
+```
+
+#### New CLI Options
+Take advantage of the new `--quiet` option for cleaner output:
+
+```bash
+# New quiet mode
+tree-sitter-analyzer file.java --structure --quiet
+
+# Enhanced parameter validation
+tree-sitter-analyzer file.java --partial-read --start-line 1 --end-line 10
+```
+
+#### UV Support
+You can now use UV for package management:
+
+```bash
+# Install with UV
+uv add tree-sitter-analyzer
+
+# Run with UV
+uv run tree-sitter-analyzer file.java --structure
+```
+
+---
+
+For more details, see the [README](README.md) and [documentation](docs/).

@@ -1,0 +1,3 @@
+# 复制本文件为 llm.local.yaml 后填入密钥（llm.local.yaml 已被 gitignore）
+api_key: "sk-xxxxxxxx"
+# model: "deepseek-v4-pro"

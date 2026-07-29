@@ -1,0 +1,51 @@
+# Reusable Publish Workflow
+# Standardized PyPI deployment
+
+name: Reusable Publish Workflow
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: "Name of the artifact to download"
+        required: false
+        default: "package-dist"
+        type: string
+    secrets:
+      PYPI_API_TOKEN:
+        required: true
+
+jobs:
+  publish:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.11
+        run: uv python install 3.11
+
+      - name: Publish to PyPI
+        run: |
+          echo "### 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          # --skip-existing makes publish idempotent: a re-triggered release
+          # run (e.g. after merging main into the release branch to resolve a
+          # version conflict for the main PR) won't fail on an already-uploaded
+          # version. PyPI is immutable, so re-uploading the same files is a noop.
+          uv run --with twine twine upload --skip-existing dist/*
+          echo "✅ Package published to PyPI successfully" >> $GITHUB_STEP_SUMMARY
+        env:
+          TWINE_USERNAME: __token__ # pragma: allowlist secret
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+          TWINE_NON_INTERACTIVE: true

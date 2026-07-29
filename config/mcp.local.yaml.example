@@ -1,0 +1,9 @@
+# 复制为 mcp.local.yaml 后按需启用（勿提交密钥）
+#
+# enabled: true
+# servers:
+#   filesystem:
+#     enabled: true
+#     transport: stdio
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "C:/Users/wei/Documents"]

@@ -1,0 +1,23 @@
+# Agent 运行模式（可提交；本机覆盖可用 agent.local.yaml）
+#
+# mode:
+#   auto          — 自动路由：简单走 ReAct，复杂走 Plan-and-Execute（推荐）
+#   react         — 始终 ReAct
+#   plan_execute  — 始终 Plan-and-Execute
+
+mode: auto
+
+router:
+  # 启发式命中多少个「复杂信号」后直接走 plan（不调用分类 LLM）
+  min_plan_signals: 2
+  # 用户文本超过该字数也倾向 plan
+  long_text_chars: 120
+  # 边界不清时是否用短 LLM 分类（无 tools）
+  use_llm_when_ambiguous: true
+
+planner:
+  max_plan_steps: 8
+
+executor:
+  # 嵌套 ReAct 单步最大递归
+  recursion_limit: 40

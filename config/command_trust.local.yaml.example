@@ -1,0 +1,7 @@
+# 终端命令信任（本机，gitignore）
+# trusted_exact: 完整命令字符串
+# trusted_patterns: 正则或前缀（非法正则时按前缀匹配）
+trusted_exact: []
+trusted_patterns:
+  # - "^git status"
+  # - "^git diff"

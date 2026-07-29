@@ -1,0 +1,13 @@
+# 旧版扁平配置（仍可用）。推荐改用 config/models.yaml 管理多模型。
+# 本地密钥：llm.local.yaml 或 models.local.yaml；环境变量 DEEPSEEK_API_KEY
+
+provider: deepseek
+api_key: ""
+base_url: "https://api.deepseek.com"
+model: "deepseek-v4-flash"   # 可选: deepseek-v4-pro
+timeout_seconds: 60
+system_prompt: "你是桌面宠物办公助手，回答简洁有用。需要时调用工具完成任务。"
+
+# 可选：推理相关（部分模型支持；默认关闭）
+reasoning_effort: null       # 如 "high"
+enable_thinking: false

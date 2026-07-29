@@ -1,0 +1,20 @@
+# MetaCoding 可选旁路（阶段 C）
+# enabled=true：探测到 Bun+依赖后可用；未安装则工具返回安装提示（不崩）。
+# 设 false 可彻底关掉。日常 C/C++ 仍优先 TSA（index_codebase / find_callers）。
+
+enabled: true
+
+# Bun 可执行文件；空=自动 PATH / ~/.bun/bin
+bun_path: ""
+
+# MetaCoding 仓库根；空=自动 <桌宠根>/MetaCoding-main
+metacoding_root: ""
+
+# 可选：固定图数据库目录；空=由 MetaCoding 解析（.metacoding 或 XDG）
+data_dir: ""
+
+# 索引是否默认跑 SCIP（TS/Python 才有 CALLS/IMPLEMENTS；更慢）
+default_scip: false
+
+timeout_seconds: 120
+index_timeout_seconds: 600

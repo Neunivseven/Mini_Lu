@@ -1,0 +1,165 @@
+# 多模型统一配置（推荐）
+# 密钥请写到 config/models.local.yaml 或 llm.local.yaml（已被 gitignore）
+# Chat 驱动均为 openai_compat：凡提供 OpenAI Chat Completions 兼容接口的服务均可接入。
+# 也可继续只用旧版 llm.yaml —— 程序会自动兼容。
+
+defaults:
+  # Agent system prompt 以 data/prompts.json 版本库为准（见「Prompt 设置」面板）。
+  system_prompt: "你是 Mini_Lu，桌面 Agent 助手，回答简洁有用。需要时调用工具完成任务。"
+  timeout_seconds: 60
+
+# 当前启用的能力 → 对应下方 providers 的 id
+active:
+  chat: deepseek
+  asr: doubao_asr
+  vision: doubao_vision
+  image: null
+
+providers:
+  # —— 语言模型（Chat · OpenAI 兼容）——
+  deepseek:
+    type: chat
+    driver: openai_compat
+    label: "DeepSeek"
+    api_key_env: DEEPSEEK_API_KEY
+    api_key: ""
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-v4-flash"   # 可选 deepseek-v4-pro
+    reasoning_effort: null
+    enable_thinking: false
+    capabilities: [text]
+
+  openai_chat:
+    type: chat
+    driver: openai_compat
+    label: "OpenAI"
+    api_key_env: OPENAI_API_KEY
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o-mini"
+    capabilities: [text, image]
+
+  qwen:
+    type: chat
+    driver: openai_compat
+    label: "通义千问 (DashScope)"
+    api_key_env: DASHSCOPE_API_KEY
+    api_key: ""
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    model: "qwen-plus"
+
+  zhipu:
+    type: chat
+    driver: openai_compat
+    label: "智谱 GLM"
+    api_key_env: ZHIPUAI_API_KEY
+    api_key: ""
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    model: "glm-4-flash"
+
+  moonshot:
+    type: chat
+    driver: openai_compat
+    label: "月之暗面 Kimi"
+    api_key_env: MOONSHOT_API_KEY
+    api_key: ""
+    base_url: "https://api.moonshot.cn/v1"
+    model: "moonshot-v1-8k"
+
+  siliconflow:
+    type: chat
+    driver: openai_compat
+    label: "SiliconFlow（多模型聚合）"
+    api_key_env: SILICONFLOW_API_KEY
+    api_key: ""
+    base_url: "https://api.siliconflow.cn/v1"
+    model: "deepseek-ai/DeepSeek-V3"
+
+  openrouter:
+    type: chat
+    driver: openai_compat
+    label: "OpenRouter（含 Claude/GPT 等）"
+    api_key_env: OPENROUTER_API_KEY
+    api_key: ""
+    base_url: "https://openrouter.ai/api/v1"
+    model: "anthropic/claude-sonnet-4"
+
+  ollama:
+    type: chat
+    driver: openai_compat
+    label: "Ollama 本地"
+    api_key_env: OLLAMA_API_KEY
+    api_key: "ollama"   # 本地一般任意非空即可
+    base_url: "http://127.0.0.1:11434/v1"
+    model: "qwen2.5:7b"
+
+  # 任意 OpenAI 兼容网关：也可用工具 register_openai_endpoint / UI「自定义」写入 models.local.yaml
+  custom_openai:
+    type: chat
+    driver: openai_compat
+    label: "自定义 OpenAI 兼容"
+    api_key_env: CUSTOM_OPENAI_API_KEY
+    api_key: ""
+    base_url: "https://example.com/v1"
+    model: "your-model-id"
+    capabilities: [text]
+
+  # 豆包多模态 Chat（文本+图片；与 doubao_vision 可共用 ARK_API_KEY）
+  # 切换：模型设置里选「豆包（多模态）」或 set_chat_provider(doubao)
+  doubao:
+    type: chat
+    driver: doubao_ark
+    label: "豆包（多模态）"
+    api_key_env: ARK_API_KEY
+    api_key: ""
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "doubao-seed-2-0-lite-260428"
+    timeout_seconds: 120
+    capabilities: [text, image]
+
+  # —— 火山方舟 Doubao Seed（Responses API：识图 / 音频转写）——
+  # Key：环境变量 ARK_API_KEY，或 models.local.yaml（勿把 Key 写进本文件）
+  doubao_vision:
+    type: vision
+    driver: doubao_ark
+    label: "豆包识图"
+    api_key_env: ARK_API_KEY
+    api_key: ""
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "doubao-seed-2-0-lite-260428"
+    timeout_seconds: 120
+
+  doubao_asr:
+    type: asr
+    driver: doubao_ark
+    label: "豆包语音"
+    api_key_env: ARK_API_KEY
+    api_key: ""
+    base_url: "https://ark.cn-beijing.volces.com/api/v3"
+    model: "doubao-seed-2-0-lite-260428"
+    timeout_seconds: 180
+
+  openai_whisper:
+    type: asr
+    driver: openai_whisper
+    label: "OpenAI Whisper"
+    api_key_env: OPENAI_API_KEY
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    model: "whisper-1"
+    timeout_seconds: 120
+
+  openai_vision:
+    type: vision
+    driver: openai_vision
+    label: "OpenAI Vision"
+    api_key_env: OPENAI_API_KEY
+    api_key: ""
+    base_url: "https://api.openai.com/v1"
+    model: "gpt-4o"
+    timeout_seconds: 120
+
+  image_stub:
+    type: image
+    driver: stub
+    label: "图像处理（未接入）"

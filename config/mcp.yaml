@@ -1,0 +1,17 @@
+# 外部 MCP 消费（可选）
+# 密钥/本机路径可写到 mcp.local.yaml（gitignore）
+#
+# enabled=false：完全不加载外部 MCP。
+# 热插拔：改配置后用工具 reload_mcp / UI「扩展」面板「重新加载」。
+#
+# servers 示例见 mcp.local.yaml.example：
+#   filesystem:
+#     enabled: true
+#     transport: stdio
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "D:/work"]
+
+enabled: false
+timeout_seconds: 30
+prefix_tools: true
+servers: {}

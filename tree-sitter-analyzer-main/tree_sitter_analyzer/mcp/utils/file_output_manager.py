@@ -1,0 +1,378 @@
+#!/usr/bin/env python3
+"""
+File Output Manager for MCP Tools
+
+This module provides functionality to save analysis results to files with
+appropriate extensions based on content type, with security validation.
+
+Enhanced with Managed Singleton Factory Pattern support for consistent
+instance management across MCP tools.
+"""
+
+import json
+import os
+from pathlib import Path
+
+from ...utils import setup_logger
+
+# Set up logging
+logger = setup_logger(__name__)
+
+
+def _similar_comma_count(line: str, ref_count: int) -> bool:
+    """Return True if *line*'s comma count is within 1 of *ref_count*.
+
+    Extracted from FileOutputManager._detect_content_format so the
+    generator expression ``if abs(line.count(',') - ref_count) <= 1``
+    doesn't push string_start leaves to depth 21 inside the class method.
+    """
+    return abs(line.count(",") - ref_count) <= 1
+
+
+class FileOutputManager:
+    """
+    Manages file output for analysis results with automatic extension detection
+    and security validation.
+    """
+
+    _instances: dict[str, "FileOutputManager"] = {}
+
+    def __init__(self, project_root: str | None = None):
+        self.project_root = project_root
+        self._output_path: str | None = None
+        self._initialize_output_path()
+
+    @classmethod
+    def get_managed_instance(
+        cls, project_root: str | None = None
+    ) -> "FileOutputManager":
+        """Return a cached instance per project_root (one per root)."""
+        key = str(project_root or "")
+        if key not in cls._instances:
+            cls._instances[key] = cls(project_root)
+        return cls._instances[key]
+
+    @classmethod
+    def create_instance(cls, project_root: str | None = None) -> "FileOutputManager":
+        """
+        Create a new FileOutputManager instance directly (bypass factory).
+
+        This method creates a new instance without using the factory pattern.
+        Use this when you specifically need a separate instance that won't
+        be managed by the factory.
+
+        Args:
+            project_root: Project root directory. If None, uses current working directory.
+
+        Returns:
+            New FileOutputManager instance
+        """
+        return cls(project_root)
+
+    def _initialize_output_path(self) -> None:
+        """Initialize the output path from environment variables or project root."""
+        # Priority 1: Environment variable TREE_SITTER_OUTPUT_PATH
+        env_output_path = os.environ.get("TREE_SITTER_OUTPUT_PATH")
+        if env_output_path and Path(env_output_path).exists():
+            self._output_path = env_output_path
+            logger.info(f"Using output path from environment: {self._output_path}")
+            return
+
+        # Priority 2: Project root if available
+        if self.project_root and Path(self.project_root).exists():
+            self._output_path = self.project_root
+            logger.info(f"Using project root as output path: {self._output_path}")
+            return
+
+        # Priority 3: Current working directory as fallback.
+        # This is reached when the manager is constructed for tools that may
+        # never actually write a file (e.g. ``ReadPartialTool``); demoting
+        # this to DEBUG removes ~4 noisy WARNING lines per tool construction
+        # that confused agents during dogfooding. The output path is still
+        # logged — just at a level you can ignore unless debugging.
+        self._output_path = str(Path.cwd())
+        logger.debug("Using current directory as output path: %s", self._output_path)
+
+    def get_output_path(self) -> str:
+        """
+        Get the current output path.
+
+        Returns:
+            Current output path
+        """
+        return self._output_path or str(Path.cwd())
+
+    def set_output_path(self, output_path: str) -> None:
+        """
+        Set a custom output path.
+
+        Args:
+            output_path: New output path
+
+        Raises:
+            ValueError: If the path doesn't exist or is not a directory
+        """
+        path_obj = Path(output_path)
+        if not path_obj.exists():
+            raise ValueError(f"Output path does not exist: {output_path}")
+        if not path_obj.is_dir():
+            raise ValueError(f"Output path is not a directory: {output_path}")
+
+        self._output_path = str(path_obj.resolve())
+        logger.info(f"Output path updated to: {self._output_path}")
+
+    def detect_content_type(self, content: str) -> str:
+        """
+        Detect content type based on content structure.
+
+        Args:
+            content: Content to analyze
+
+        Returns:
+            Detected content type ('json', 'csv', 'markdown', 'toon', or 'text')
+        """
+        content_stripped = content.strip()
+
+        # Check for JSON
+        if content_stripped.startswith(("{", "[")):
+            try:
+                json.loads(content_stripped)
+                return "json"
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Check for TOON format (YAML-like with array table syntax)
+        # TOON characteristics:
+        # - Lines with "key: value" format (YAML-like)
+        # - Array table headers like "[count]{schema}:"
+        # - No JSON braces/brackets at start
+        if self._is_toon_format(content_stripped):
+            return "toon"
+
+        # Check for CSV (simple heuristic)
+        lines = content_stripped.split("\n")
+        if len(lines) >= 2:
+            # Check if first few lines have consistent comma separation
+            first_line_commas = lines[0].count(",")
+            if first_line_commas > 0:
+                # Check if at least 2 more lines have similar comma counts
+                similar_comma_lines = sum(
+                    1
+                    for line in lines[1:4]
+                    if _similar_comma_count(line, first_line_commas)
+                )
+                if similar_comma_lines >= 1:
+                    return "csv"
+
+        # Check for Markdown (simple heuristic)
+        markdown_indicators = ["#", "##", "###", "|", "```", "*", "-", "+"]
+        if any(
+            content_stripped.startswith(indicator) for indicator in markdown_indicators
+        ):
+            return "markdown"
+
+        # Check for table format (pipe-separated)
+        if "|" in content and "\n" in content:
+            lines = content_stripped.split("\n")
+            pipe_lines = sum(1 for line in lines if "|" in line)
+            if pipe_lines >= 2:  # At least header and one data row
+                return "markdown"
+
+        # Default to text
+        return "text"
+
+    def _is_toon_format(self, content: str) -> bool:
+        """
+        Detect if content is in TOON format.
+
+        TOON format characteristics:
+        - Lines with "key: value" format (YAML-like)
+        - Array table headers like "[count]{schema}:"
+        - No JSON braces/brackets at start
+
+        Args:
+            content: Content to check
+
+        Returns:
+            True if content appears to be TOON format
+        """
+        import re
+
+        lines = content.split("\n")
+        if not lines:
+            return False
+
+        # TOON array table pattern: [count]{field1,field2,...}:
+        toon_array_pattern = re.compile(r"^\s*\[\d+\]\{[^}]+\}:\s*$")
+
+        # TOON key-value pattern: key: value (but not JSON-like)
+        toon_kv_pattern = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*:\s*.+$")
+
+        toon_indicators = 0
+        for line in lines[:20]:  # Check first 20 lines
+            line = line.strip()
+            if not line:
+                continue
+
+            # Check for TOON array table header
+            if toon_array_pattern.match(line):
+                return True  # Strong indicator
+
+            # Check for TOON key-value format
+            if toon_kv_pattern.match(line):
+                toon_indicators += 1
+
+        # If we have multiple key-value lines and no JSON indicators, likely TOON
+        return toon_indicators >= 2
+
+    def get_file_extension(self, content_type: str) -> str:
+        """
+        Get file extension for content type.
+
+        Args:
+            content_type: Content type ('json', 'csv', 'markdown', 'toon', 'text')
+
+        Returns:
+            File extension including the dot
+        """
+        extension_map = {
+            "json": ".json",
+            "csv": ".csv",
+            "markdown": ".md",
+            "toon": ".toon",
+            "text": ".txt",
+        }
+        return extension_map.get(content_type, ".txt")
+
+    def generate_output_filename(self, base_name: str, content: str) -> str:
+        """
+        Generate output filename with appropriate extension.
+
+        Args:
+            base_name: Base filename (without extension)
+            content: Content to analyze for type detection
+
+        Returns:
+            Complete filename with extension
+        """
+        content_type = self.detect_content_type(content)
+        extension = self.get_file_extension(content_type)
+
+        # Remove existing extension if present
+        base_name_clean = Path(base_name).stem
+
+        return f"{base_name_clean}{extension}"
+
+    def save_to_file(
+        self, content: str, filename: str | None = None, base_name: str | None = None
+    ) -> str:
+        """
+        Save content to file with automatic extension detection.
+
+        Args:
+            content: Content to save
+            filename: Optional specific filename (overrides base_name)
+            base_name: Optional base name for auto-generated filename
+
+        Returns:
+            Path to the saved file
+
+        Raises:
+            ValueError: If neither filename nor base_name is provided
+            OSError: If file cannot be written
+        """
+        if not filename and not base_name:
+            raise ValueError("Either filename or base_name must be provided")
+
+        output_path = Path(self.get_output_path())
+
+        if filename:
+            # Use provided filename as-is
+            output_file = output_path / filename
+        else:
+            # Generate filename with appropriate extension
+            if base_name is None:
+                raise ValueError(
+                    "base_name cannot be None when filename is not provided"
+                )
+            generated_filename = self.generate_output_filename(base_name, content)
+            output_file = output_path / generated_filename
+
+        # SEC-1: reject paths that escape the configured output directory.
+        # An MCP-supplied filename like "../../etc/cron.d/x" would otherwise
+        # let an agent plant files anywhere it can write. We resolve both
+        # ends and require output_file to be inside output_path.
+        try:
+            output_root_resolved = output_path.resolve()
+            output_file_resolved = output_file.resolve()
+            output_file_resolved.relative_to(output_root_resolved)
+        except (OSError, ValueError) as exc:
+            raise ValueError(
+                f"Refusing to write outside the output directory: "
+                f"{output_file} is not under {output_path} ({exc})"
+            ) from None
+        # From here on, use the resolved path so any later relativisation
+        # (e.g. logging) does not include traversal segments.
+        output_file = output_file_resolved
+
+        # Ensure output directory exists
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write content to file
+        try:
+            from ...encoding_utils import write_file_safe
+
+            write_file_safe(output_file, content)
+
+            logger.info(f"Content saved to file: {output_file}")
+            return str(output_file)
+
+        except OSError as e:
+            logger.error(f"Failed to save content to file {output_file}: {e}")
+            raise
+
+    def validate_output_path(self, path: str) -> tuple[bool, str | None]:
+        """
+        Validate if a path is safe for output.
+
+        Args:
+            path: Path to validate
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        try:
+            path_obj = Path(path).resolve()
+
+            # Check if parent directory exists or can be created
+            parent_dir = path_obj.parent
+            if not parent_dir.exists():
+                try:
+                    parent_dir.mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    return False, f"Cannot create parent directory: {e}"
+
+            # Check if we can write to the directory
+            if not os.access(parent_dir, os.W_OK):
+                return False, f"No write permission for directory: {parent_dir}"
+
+            # Check if file already exists and is writable
+            if path_obj.exists() and not os.access(path_obj, os.W_OK):
+                return False, f"No write permission for existing file: {path_obj}"
+
+            return True, None
+
+        except Exception as e:
+            return False, f"Path validation error: {str(e)}"
+
+    def set_project_root(self, project_root: str) -> None:
+        """
+        Update the project root and reinitialize output path if needed.
+
+        Args:
+            project_root: New project root directory
+        """
+        self.project_root = project_root
+        # Only reinitialize if we don't have an explicit output path from environment
+        if not os.environ.get("TREE_SITTER_OUTPUT_PATH"):
+            self._initialize_output_path()

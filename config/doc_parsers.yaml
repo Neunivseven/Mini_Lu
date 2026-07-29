@@ -1,0 +1,20 @@
+# 文档解析（PyMuPDF）—— 随桌宠主环境 / exe 打包，无需独立 conda。
+# 已移除 Marker / MinerU。
+
+# 默认引擎: auto | pymupdf | builtin
+default_engine: pymupdf
+
+# 解析结果导出目录（相对桌宠根或绝对路径）
+output_dir: data/doc_parse
+
+# 单次最多解析页数（无 pages= 时）
+max_pages: 100
+
+# 注入 Agent 时的最大字符数
+max_chars: 20000
+
+# 文本模式: text | markdown | blocks
+text_mode: text
+
+# 是否在正文中加 [第N页] 标题
+page_header: true

@@ -1,0 +1,46 @@
+# 复制为 models.local.yaml 后填写密钥（已被 gitignore）
+# 也可继续只用 llm.local.yaml —— 会自动合并到 active.chat
+#
+# 切换对话模型示例：
+# active:
+#   chat: qwen          # deepseek | openai_chat | qwen | zhipu | moonshot | siliconflow | openrouter | ollama | custom_openai
+#   asr: doubao_asr
+#   vision: doubao_vision
+
+providers:
+  deepseek:
+    api_key: "sk-xxxxxxxx"
+    # model: "deepseek-v4-pro"
+
+  # qwen:
+  #   api_key: "sk-xxxxxxxx"
+  # zhipu:
+  #   api_key: "xxxxxxxx.xxxxxxxx"
+  # moonshot:
+  #   api_key: "sk-xxxxxxxx"
+  # openai_chat:
+  #   api_key: "sk-xxxxxxxx"
+  # siliconflow:
+  #   api_key: "sk-xxxxxxxx"
+  # openrouter:
+  #   api_key: "sk-or-xxxxxxxx"
+  # custom_openai:
+  #   api_key: "sk-xxxxxxxx"
+  #   base_url: "https://your-gateway/v1"
+  #   model: "your-model"
+
+  # 火山方舟 Doubao（识图 / 语音转写共用同一 Key）
+  doubao_vision:
+    api_key: "你的ARK_API_KEY"
+  doubao_asr:
+    api_key: "你的ARK_API_KEY"
+
+  # openai_whisper:
+  #   api_key: "sk-xxxxxxxx"
+  # openai_vision:
+  #   api_key: "sk-xxxxxxxx"
+
+# 启用豆包识图 / 语音时取消注释：
+# active:
+#   vision: doubao_vision
+#   asr: doubao_asr

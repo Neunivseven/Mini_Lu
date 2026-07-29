@@ -1,0 +1,636 @@
+#!/usr/bin/env python3
+"""``nav`` facade — Wave B consolidation of code-navigation inner tools.
+
+Folds eight navigation capabilities (plus two scope-discriminated actions)
+behind one ``action`` parameter:
+
+============  =============================================  ==========================
+action        inner / route                                  scope/notes
+============  =============================================  ==========================
+navigate      ``codegraph_navigate``                         symbol go-to-definition
+call_path     ``codegraph_call_path``                        BFS path between functions
+xref          ``codegraph_xref``                             cross-reference lookup
+resolve       ``codegraph_resolve``                          symbol resolver
+lineage       ``symbol_lineage``                             class/function lineage
+impact        ``codegraph_impact``                           blast-radius / risk
+trace         ``trace_impact``                               impact trace
+test_map      BESPOKE — RFC-0014 Phase B                    test-file callers of symbol
+co_change     BESPOKE — RFC-0014 Phase C                    git-history co-change coupling
+callers       BESPOKE — scope=point → callers_tool (R4)     point = direct callers
+              BESPOKE — scope=graph → call_graph mode=callers
+callees       BESPOKE — scope=point → callees_tool (R4)     point = direct callees
+              BESPOKE — scope=graph → call_graph mode=callees
+============  =============================================  ==========================
+
+R4 (PRD §0 Errata): ``callers``/``callees`` are scope-discriminated.
+  - ``scope=point`` (default) → ``codegraph_callers``/``codegraph_callees`` for
+    direct 1-hop lookup (fast, ``function_name`` required).
+  - ``scope=graph`` → ``codegraph_call_graph mode=callers|callees`` for full
+    traversal (BFS, ``function_name`` required for callers/callees modes).
+
+Both callers/callees closures read ``scope`` BEFORE the framework strips it,
+and they are registered via ``register_bespoke_inner`` (G3) so project-root
+rebinds propagate correctly.
+
+R3: ``symbol`` → ``function_name`` normalization is applied automatically by
+``FacadeTool._project_args`` for action_map routes, and defensively by
+``FacadeTool._clean_bespoke_args`` for bespoke routes — so callers passing
+``symbol=`` instead of ``function_name=`` are handled transparently.
+
+All nav actions are read-only; a single honest ``readOnlyHint=True`` is valid
+(unlike ``edit``/``project`` facades that span mutating actions).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .facade_tool import FacadeTool
+
+# RFC-0014 Phase B: cap for test_map test_functions list (matches _MAX_LISTED).
+_MAX_TEST_MAP = 50
+
+
+def _is_pytest_collectible(name: str) -> bool:
+    """Return True only for pytest-collectible function/method names.
+
+    pytest collects functions and methods whose name starts with ``test_``
+    (case-sensitive). Private helpers (``_run``, ``_helper``, etc.) and
+    non-prefixed utilities are not collected by pytest even when they appear
+    inside test files.
+
+    This filter is intentionally narrow: ``name.startswith("test_")`` is the
+    exact rule pytest uses for both module-level functions and class methods.
+    """
+    return name.startswith("test_")
+
+
+def _is_python_file(file_path: str) -> bool:
+    """True for Python source files (where the pytest ``test_`` rule applies)."""
+    return file_path.endswith(".py")
+
+
+def _is_go_test_func(name: str) -> bool:
+    """True for Go test entry points: ``TestXxx``/``BenchmarkXxx``/``ExampleXxx``/``FuzzXxx``.
+
+    ``go test`` runs only top-level functions whose name starts with one of
+    these four prefixes followed by an uppercase letter (or nothing, e.g.
+    ``Example``). A bare ``Test`` with no suffix is also valid. Helpers like
+    ``setupServer`` are NOT run directly by ``go test`` and must walk up.
+    """
+    for prefix in ("Test", "Benchmark", "Example", "Fuzz"):
+        if name.startswith(prefix):
+            rest = name[len(prefix) :]
+            # ``TestFoo`` (uppercase suffix) or bare ``Test``/``Example`` are
+            # collected; ``Testing``-style lowercase suffixes are not test funcs
+            # per the gotest convention (suffix must start uppercase or be empty).
+            if rest == "" or rest[0].isupper() or not rest[0].isalpha():
+                return True
+    return False
+
+
+def _is_js_test_func(name: str) -> bool:
+    """Heuristic for JS/TS test functions inside a test file.
+
+    JS/TS test runners (jest/vitest/mocha) register cases via ``test(...)`` /
+    ``it(...)`` callbacks whose recorded name is the spec description (e.g.
+    ``renders correctly``) rather than a function identifier. The call graph
+    surfaces those descriptions as the caller ``name``. We treat any name that
+    is NOT a plain private-helper identifier as a test entry point: i.e. accept
+    unless it looks like a bare ``_helper``/``camelCaseHelper`` identifier.
+    A name containing whitespace is a spec description → always a test.
+    """
+    if " " in name:
+        return True
+    # ``test``/``it``/``should``/``when`` prefixed identifiers are test-like.
+    lowered = name.lower()
+    if lowered.startswith(("test", "it", "should", "when", "describe")):
+        return True
+    # A bare identifier (e.g. ``setup``, ``_helper``, ``mountComponent``) is a
+    # helper, not a test entry point → defer to the walk-up.
+    return False
+
+
+def _is_java_test_method(name: str) -> bool:
+    """Heuristic for JUnit test methods (annotation-based, no name rule).
+
+    JUnit identifies tests by the ``@Test`` annotation, not by name, so there
+    is no reliable name convention. We accept the common BDD-style prefixes
+    (``test*``/``should*``/``when*``) AND any other public (non-underscore)
+    method as a reasonable heuristic — JUnit test methods are public and the
+    call graph only surfaces methods physically inside the test file. A private
+    helper (leading underscore — rare in Java but possible in generated code)
+    defers to the walk-up.
+
+    NOTE (lead, correct if wrong): chose "accept any public method" over a
+    strict prefix list because @Test names are arbitrary (``shouldHandleFoo``,
+    ``rendersOnInit``); a strict list would drop valid tests. Underscore-leading
+    names are the only ones treated as helpers.
+    """
+    return not name.startswith("_")
+
+
+def _is_collectible_caller(file_path: str, name: str, language: str = "") -> bool:
+    """Decide whether a test-file caller is an accepted test entry point.
+
+    The pytest ``test_`` name rule is Python-specific. Other languages use
+    different conventions, so applying the pytest filter to them drops valid
+    cross-language test callers — but accepting EVERY function in a non-Python
+    test file over-accepts helpers (e.g. a Go ``setupServer`` that ``go test``
+    never runs directly), bypassing the 1-hop walk-up (Bug #807 follow-up).
+
+    Per-language convention:
+      - Python: pytest ``test_`` prefix (module funcs and methods).
+      - Go: ``TestXxx``/``BenchmarkXxx``/``ExampleXxx``/``FuzzXxx``.
+      - JS/TS: spec descriptions / ``test``/``it``/``should``/``when`` names.
+      - Java/JUnit: any public (non-underscore) method (annotation-based).
+      - Unknown language: accept (no convention to apply).
+
+    A caller that does NOT match its language convention is treated as a
+    non-collectible helper, so the caller code applies the SAME 1-hop walk-up
+    used for Python helpers to find the convention-matching test above it.
+    """
+    if _is_python_file(file_path):
+        return _is_pytest_collectible(name)
+    lang = (language or "").lower()
+    if lang == "go" or file_path.endswith(".go"):
+        return _is_go_test_func(name)
+    if lang in ("javascript", "typescript", "js", "ts", "jsx", "tsx") or (
+        file_path.endswith((".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"))
+    ):
+        return _is_js_test_func(name)
+    if lang == "java" or file_path.endswith(".java"):
+        return _is_java_test_method(name)
+    # Unknown language with no recognised convention → accept the caller.
+    return True
+
+
+def _test_map_next_step(
+    test_files: list[str],
+    *,
+    listed_function_count: int,
+    unique_function_count: int,
+    truncated: bool,
+) -> str:
+    """Build an honest next step for ``nav action=test_map``.
+
+    The result carries every test file but caps ``test_functions``. Recommend
+    per-file pytest runs so agents do not mistake a capped function preview for
+    the complete verification surface.
+    """
+    if not test_files:
+        return (
+            "No test coverage found via call-graph edges. "
+            "Consider running pytest --cov to detect coverage."
+        )
+
+    command = f"pytest {' '.join(test_files)}"
+    if truncated:
+        return (
+            f"Run per-file tests: {command}. Listed {listed_function_count} of "
+            f"{unique_function_count} test function(s); test_files contains the "
+            "complete file-level surface."
+        )
+    return (
+        f"Run per-file tests: {command}. Covers {unique_function_count} "
+        "test function(s)."
+    )
+
+
+_NAV_ANNOTATIONS: dict[str, Any] = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+}
+
+_NAV_DESCRIPTION = (
+    "Code-intelligence (codegraph-compatible) navigation facade. "
+    "Covers codegraph_navigate, codegraph_callers, codegraph_callees, "
+    "codegraph_call_path, codegraph_xref, codegraph_impact, codegraph_context, "
+    "codegraph_trace, and symbol lineage/resolve in one tool. "
+    "START HERE for any 'how does X work' / trace / call-flow / "
+    "understand-a-class question: call action=context FIRST (ONE call composes "
+    "definition + callers + callees + code for a task), then action=callee_tree "
+    "or caller_tree for the FULL traversal tree in ONE call. These replace many "
+    "search/navigate/Read round-trips — do NOT loop search or per-symbol "
+    "navigate; reach for the tree/context actions instead.\n"
+    "Pick a capability via `action`:\n"
+    "- action=navigate — go-to-definition / symbol navigation "
+    "(codegraph_navigate equivalent). "
+    "Params: symbol (required), mode (full|references|callers|callees).\n"
+    "- action=call_path — BFS execution path between two functions "
+    "('how does A reach B?', codegraph_call_path equivalent). "
+    "Params: source_function, target_function, source_file, target_file, "
+    "direction (forward|backward|bidirectional), max_depth, max_paths.\n"
+    "- action=xref — cross-reference lookup (who uses this symbol or file, "
+    "codegraph_xref equivalent). "
+    "Params: symbol, mode (symbol|file), file_path.\n"
+    "- action=resolve — go-to-definition + find-all-references for a symbol. "
+    "Params: symbol (required), mode (resolve|references), output_format.\n"
+    "- action=lineage — class/function inheritance and override lineage. "
+    "Params: symbol (required), output_format.\n"
+    "- action=impact — blast-radius / risk scoring for a function or set of "
+    "functions (codegraph_impact equivalent). "
+    "Risk score computed from PRODUCTION edges only; tests bucket "
+    "(test_callers_count, test_callees_count) always present. "
+    "Params: mode (function_impact|blast_radius|risk_score), "
+    "function_name, function_names, file_path, depth, "
+    "include_tests (bool, default false — when true adds "
+    "test_caller_files/test_callee_files to tests bucket).\n"
+    "- action=trace — full impact trace from a symbol outward "
+    "(codegraph_trace equivalent). "
+    "Params: symbol (required), output_format.\n"
+    "- action=context — one-call focused context for a task/symbol: composes "
+    "search + definition + callers + callees in a single capped response "
+    "(codegraph_context equivalent). "
+    "Params: task (required — natural-language description or symbol name), "
+    "max_nodes, max_code_blocks, output_format.\n"
+    "- action=callers — who calls a function (codegraph_callers equivalent).\n"
+    "  scope=point (default) → direct 1-hop callers (fast). "
+    "Params: function_name/symbol (required), file_path, output_format.\n"
+    "  scope=graph → full call-graph traversal (callers mode). "
+    "Params: function_name/symbol (required), file_path, depth, output_format.\n"
+    "- action=callees — what a function calls (codegraph_callees equivalent).\n"
+    "  scope=point (default) → direct 1-hop callees (fast). "
+    "Params: function_name/symbol (required), file_path, output_format.\n"
+    "  scope=graph → full call-graph traversal (callees mode). "
+    "Params: function_name/symbol (required), file_path, depth, output_format.\n"
+    "- action=callee_tree — depth-limited NESTED tree of everything a function "
+    "transitively calls, in ONE call (no per-node iteration). Prefer this over "
+    "looping action=callees. Params: symbol (required), file_path, max_depth "
+    "(default 3, cap 10), max_nodes (default 150), output_format.\n"
+    "- action=caller_tree — depth-limited NESTED tree of everything that "
+    "transitively calls a function (blast radius), in ONE call. Params: symbol "
+    "(required), file_path, max_depth, max_nodes, output_format.\n"
+    "- action=test_map — which tests exercise a function (test-file callers, by "
+    "file and test function name). Use BEFORE editing to know the test surface. "
+    "Returns test_files (sorted, deduplicated), test_functions in "
+    "'file::fn' format (paste directly into pytest), edge_count (raw call edges "
+    "across all resolved targets), unique_function_count (post-dedup; truncated "
+    "is keyed to this), truncated flag (cap=50 unique functions). "
+    "Params: symbol (required), file_path, output_format.\n"
+    "- action=co_change — git-history temporal coupling: files that historically "
+    "change together with a file or symbol (lift-ranked). Use BEFORE editing to "
+    "find implicit coupling that the call graph cannot see (config+code, "
+    "schema+handler, proto+generated stub). Params: symbol or file_path (one "
+    "required), max_commits (default 500), min_shared (default 3), "
+    "max_results (default 20), output_format."
+)
+
+
+def build_nav_facade(project_root: str | None = None) -> FacadeTool:
+    """Construct the ``nav`` facade wired to live inner tool instances.
+
+    Imports are inlined to keep cold-start cost off the import path for callers
+    that don't build the facade (matches the lazy-import convention used across
+    the tool registry).
+    """
+    from ...utils.test_detection import is_test_file
+    from ._call_tree_tool import CodeGraphCalleeTreeTool, CodeGraphCallerTreeTool
+    from .call_graph_tool import CodeGraphCallTool
+    from .call_path_tool import CodeGraphCallPathTool
+    from .callees_tool import CodeGraphCalleesTool
+    from .callers_tool import CodeGraphCallersTool
+    from .codegraph_context_tool import CodeGraphContextTool
+    from .codegraph_impact_tool import CodeGraphImpactTool
+    from .codegraph_navigate_tool import CodeGraphNavigateTool
+    from .codegraph_xref_tool import CodeGraphXRefTool
+    from .symbol_lineage_tool import SymbolLineageTool
+    from .symbol_resolve_tool import CodeGraphSymbolResolveTool
+    from .trace_impact_tool import TraceImpactTool
+
+    # ------------------------------------------------------------------
+    # R4 bespoke inners — scope-discriminated callers/callees
+    #
+    # ``scope`` is a facade control key that the framework strips BEFORE
+    # projecting args to an inner schema.  Because we need to READ scope
+    # to choose the inner, we use bespoke closures that receive the full
+    # cleaned-args dict (control keys minus ``action`` stripped, R3 copy
+    # applied) and inspect ``scope`` themselves.
+    #
+    # All four instances are registered via ``register_bespoke_inner``
+    # (called after facade construction below) so G3 rebind reaches them.
+    # ------------------------------------------------------------------
+
+    callers_point = CodeGraphCallersTool(project_root)
+    callers_graph = CodeGraphCallTool(project_root)
+    callees_point = CodeGraphCalleesTool(project_root)
+    callees_graph = CodeGraphCallTool(project_root)
+    context_inner = CodeGraphContextTool(project_root)
+    # RFC-0014 Phase B: impact_inner shares its CachedCallGraph with test_map
+    # so no second index build is needed when both actions are called per session.
+    impact_inner = CodeGraphImpactTool(project_root)
+
+    async def _context_route(args: dict[str, Any]) -> Any:
+        """Bespoke context route: normalize symbol/query → task (fix ③).
+
+        ``CodeGraphContextTool`` requires ``task`` (a natural-language string).
+        The nav description exposes ``symbol``/``query`` as convenience aliases
+        because callers naturally think in symbol names. This bespoke closure
+        applies the normalization BEFORE delegating to the inner so callers
+        passing ``symbol="MyClass"`` or ``query="execute"`` don't trip the
+        ``ValueError: task is required`` guard.
+        Resolution order: explicit ``task`` > ``symbol`` > ``query``.
+        """
+        # Build the projected args set that context inner accepts.
+        # RFC-0006: include_graph added for progressive disclosure opt-in.
+        inner_keys = (
+            "task",
+            "max_nodes",
+            "max_code_blocks",
+            "output_format",
+            "include_graph",
+        )
+        context_args: dict[str, Any] = {
+            k: v for k, v in args.items() if k in inner_keys
+        }
+        # Normalize: if ``task`` not provided, fall back to ``symbol`` or ``query``.
+        if not context_args.get("task"):
+            fallback = args.get("symbol") or args.get("query")
+            if fallback:
+                context_args["task"] = str(fallback)
+        return await context_inner.execute(context_args)
+
+    async def _callers_route(args: dict[str, Any]) -> Any:
+        """R4: scope=point → direct callers; scope=graph → call-graph traversal."""
+        scope = args.pop("scope", "point")
+        if scope == "graph":
+            # Inject mode=callers for the call-graph inner; project to its schema.
+            graph_args = {
+                k: v
+                for k, v in args.items()
+                if k in ("function_name", "file_path", "depth", "output_format")
+            }
+            graph_args["mode"] = "callers"
+            return await callers_graph.execute(graph_args)
+        # scope=point (default): use the dedicated callers tool.
+        # limit is forwarded so callers=point honours the budget cap.
+        point_args = {
+            k: v
+            for k, v in args.items()
+            if k in ("function_name", "file_path", "limit", "output_format")
+        }
+        return await callers_point.execute(point_args)
+
+    async def _callees_route(args: dict[str, Any]) -> Any:
+        """R4: scope=point → direct callees; scope=graph → call-graph traversal."""
+        scope = args.pop("scope", "point")
+        if scope == "graph":
+            graph_args = {
+                k: v
+                for k, v in args.items()
+                if k in ("function_name", "file_path", "depth", "output_format")
+            }
+            graph_args["mode"] = "callees"
+            return await callees_graph.execute(graph_args)
+        # limit is forwarded so callees=point honours the budget cap.
+        point_args = {
+            k: v
+            for k, v in args.items()
+            if k in ("function_name", "file_path", "limit", "output_format")
+        }
+        return await callees_point.execute(point_args)
+
+    async def _test_map_route(args: dict[str, Any]) -> Any:
+        """RFC-0014 Phase B: which tests exercise a function?
+
+        Reuses impact_inner's CachedCallGraph so no second index build is
+        needed. Filters caller_refs_of to test-file callers only (reuses
+        is_test_file from Phase A — no duplication of classification logic).
+
+        Algorithm:
+          1. resolve_targets(symbol, file_path) → targets
+          2. For each target: caller_refs_of(target) → filter is_test_file
+          3. Collect (file_path, name) pairs; format as "file::name"
+          4. Sort; deduplicate files; cap at _MAX_TEST_MAP with truncated flag
+
+        NOT_FOUND semantics: when resolve_targets returns [] → success=False.
+        """
+        symbol: str | None = args.get("symbol") or args.get("function_name")
+        file_path: str | None = args.get("file_path")
+
+        if not symbol:
+            return {
+                "success": False,
+                "error": "symbol is required for action=test_map",
+            }
+
+        try:
+            graph = impact_inner.get_call_graph()
+            graph.build()
+        except Exception as exc:  # nosec B110
+            return {
+                "success": False,
+                "error": f"call graph unavailable: {exc}",
+            }
+
+        targets = graph.resolve_targets(symbol, file_path)
+        if not targets:
+            return {
+                "success": False,
+                "error": f"symbol not found: {symbol}",
+            }
+
+        # Collect all test caller refs across all resolved targets.
+        seen_qualified: set[str] = set()
+        test_funcs: list[str] = []  # "file::name" strings, pre-dedup
+        test_file_set: set[str] = set()
+        total_edge_count = 0
+        # Per-(target, test) coverage edges already counted, so a test that is
+        # both a direct caller AND (via a helper) a walk-up parent of the SAME
+        # target is not double-counted — while a DIFFERENT target sharing the
+        # same test still counts its own genuine coverage edge (P2 undercount).
+        counted_edges: set[tuple[str, str]] = set()
+        # Non-collectible helpers (Python ``_run``, Go ``setupServer``, …) in
+        # test files, paired with the target they were reached from, for a
+        # deferred one-hop walk-up after all direct callers are known (#807).
+        helper_refs: list[tuple[Any, Any]] = []
+
+        def _add_to_set(file_path: str, name: str) -> None:
+            key = f"{file_path}::{name}"
+            if key not in seen_qualified:
+                seen_qualified.add(key)
+                test_funcs.append(key)
+                test_file_set.add(file_path)
+
+        def _record_edge(target: Any, file_path: str, name: str) -> None:
+            """Count one (target → test) coverage edge, deduped per target."""
+            nonlocal total_edge_count
+            edge_key = (target.qualified_name(), f"{file_path}::{name}")
+            if edge_key in counted_edges:
+                return
+            counted_edges.add(edge_key)
+            total_edge_count += 1
+            _add_to_set(file_path, name)
+
+        for target in targets:
+            for ref in graph.caller_refs_of(target):
+                if not is_test_file(ref.file_path):
+                    continue
+                if _is_collectible_caller(
+                    ref.file_path, ref.name, getattr(ref, "language", "")
+                ):
+                    _record_edge(target, ref.file_path, ref.name)
+                else:
+                    helper_refs.append((target, ref))
+
+        # Bug #807: a direct caller in a test file whose name does not match the
+        # language test convention (e.g. a Python ``_run`` helper or a Go
+        # ``setupServer``) hides the real test entry point. Walk up ONE hop to
+        # the convention-matching test that calls the helper. The walk is capped
+        # at a single hop to avoid cost blowups.
+        #
+        # P2 undercount fix: edge_count counts genuine (target, helper→test)
+        # coverage edges. When ONE test function reaches TWO targets via a shared
+        # helper, both edges are counted (each keyed by its own target) even
+        # though the test appears once in test_functions. _record_edge dedupes
+        # only per (target, test) — mirroring the direct-caller path which counts
+        # a raw edge per (target, caller) pair before deduping the function set.
+        for target, helper in helper_refs:
+            for parent in graph.caller_refs_of(helper):
+                if not is_test_file(parent.file_path):
+                    continue
+                if not _is_collectible_caller(
+                    parent.file_path, parent.name, getattr(parent, "language", "")
+                ):
+                    continue
+                _record_edge(target, parent.file_path, parent.name)
+
+        test_funcs_sorted = sorted(test_funcs)
+        test_files_sorted = sorted(test_file_set)
+        unique_function_count = len(test_funcs_sorted)
+        truncated = unique_function_count > _MAX_TEST_MAP
+        capped = test_funcs_sorted[:_MAX_TEST_MAP]
+
+        output_format: str = args.get("output_format", "toon")
+
+        result: dict = {
+            "success": True,
+            "symbol": symbol,
+            "test_files": test_files_sorted,
+            "test_functions": capped,
+            "edge_count": total_edge_count,
+            "unique_function_count": unique_function_count,
+            "truncated": truncated,
+            "agent_summary": {
+                "next_step": _test_map_next_step(
+                    test_files_sorted,
+                    listed_function_count=len(capped),
+                    unique_function_count=unique_function_count,
+                    truncated=truncated,
+                ),
+            },
+        }
+
+        from ..utils.format_helper import apply_toon_format_to_response
+
+        return apply_toon_format_to_response(result, output_format)
+
+    async def _co_change_route(args: dict[str, Any]) -> Any:
+        """RFC-0014 Phase C: git-history co-change coupling.
+
+        Returns files that historically change together with the target file,
+        ranked by true association lift P(A^B)/(P(A)*P(B)).
+
+        Resolves symbol -> defining file when symbol= is given instead of
+        file_path=. Runs _compute_co_change in a thread executor (subprocess
+        I/O). Results are cached per (project_root, target_file, HEAD).
+
+        Error handling: returns success=True with empty list when git is
+        unavailable — never raises an error envelope.
+        """
+        import asyncio
+
+        from .utils.co_change import _compute_co_change
+
+        symbol: str | None = args.get("symbol") or args.get("function_name")
+        file_path: str | None = args.get("file_path")
+
+        if not symbol and not file_path:
+            return {
+                "success": False,
+                "error": "co_change requires symbol or file_path (one is required)",
+            }
+
+        # Resolve symbol -> defining file via call graph when file_path not given.
+        target_file = file_path
+        if not target_file and symbol:
+            try:
+                graph = impact_inner.get_call_graph()
+                graph.build()
+                targets = graph.resolve_targets(symbol, None)
+                if targets:
+                    target_file = targets[0].file_path
+            except Exception:  # nosec B110
+                pass
+        if not target_file:
+            # Fall back to symbol as a file path (co_change for a file by name).
+            target_file = symbol or ""
+
+        max_commits: int = int(args.get("max_commits", 500))
+        min_shared: int = int(args.get("min_shared", 3))
+        max_results: int = int(args.get("max_results", 20))
+        proj_root: str = project_root or ""
+
+        loop = asyncio.get_running_loop()
+        co_result = await loop.run_in_executor(
+            None,
+            _compute_co_change,
+            proj_root,
+            target_file,
+            max_commits,
+            min_shared,
+            max_results,
+        )
+
+        output_format: str = args.get("output_format", "toon")
+
+        from ..utils.format_helper import apply_toon_format_to_response
+
+        return apply_toon_format_to_response(co_result, output_format)
+
+    facade = FacadeTool(
+        facade_name="nav",
+        action_map={
+            "navigate": CodeGraphNavigateTool(project_root),
+            "call_path": CodeGraphCallPathTool(project_root),
+            "xref": CodeGraphXRefTool(project_root),
+            "resolve": CodeGraphSymbolResolveTool(project_root),
+            "lineage": SymbolLineageTool(project_root),
+            "impact": CodeGraphImpactTool(project_root),
+            "trace": TraceImpactTool(project_root),
+            # Tree primitives (mycelium RFC-0020/0021 parity): one call →
+            # depth-limited NESTED tree, so the agent stops iterating
+            # callees/callers per node (the IndexShard dogfood loss root cause).
+            "callee_tree": CodeGraphCalleeTreeTool(project_root),
+            "caller_tree": CodeGraphCallerTreeTool(project_root),
+        },
+        bespoke_map={
+            # Composed one-call context (search + node + callers + callees).
+            # Bespoke so we can normalize symbol/query → task before delegating
+            # to CodeGraphContextTool (which requires ``task``). Moved from
+            # action_map so the normalization closure fires on every call.
+            "context": _context_route,
+            "callers": _callers_route,
+            "callees": _callees_route,
+            # RFC-0014 Phase B: test_map — which tests exercise a function.
+            "test_map": _test_map_route,
+            # RFC-0014 Phase C: co_change — git-history co-change coupling.
+            "co_change": _co_change_route,
+        },
+        description=_NAV_DESCRIPTION,
+        annotations=_NAV_ANNOTATIONS,
+        project_root=project_root,
+    )
+
+    # G3: register all bespoke inners so set_project_path reaches them.
+    facade.register_bespoke_inner(context_inner)
+    facade.register_bespoke_inner(callers_point)
+    facade.register_bespoke_inner(callers_graph)
+    facade.register_bespoke_inner(callees_point)
+    facade.register_bespoke_inner(callees_graph)
+    # RFC-0014 Phase B: impact_inner holds the shared CachedCallGraph.
+    facade.register_bespoke_inner(impact_inner)
+
+    return facade

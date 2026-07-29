@@ -1,0 +1,53 @@
+# Q版桌宠角色锁定设定（生成时必须遵守，禁止漂移）
+# 发色固定，避免帧间发色变化
+
+character:
+  name: "Q版卡通大叔"
+  style: "chibi Q-version, thick clean black outlines, flat cel shading, sticker sprite"
+
+  # —— 发色锁定（最重要）——
+  hair:
+    style: "short spiky hair"
+    # 固定双色灰，禁止纯黑/棕/金/蓝
+    top_color: "dark charcoal ash gray (#3D3D3D)"
+    side_color: "cool light ash gray (#9B9B9B)"
+    locked_phrase: "ALWAYS the same two-tone ash-gray hair: dark charcoal on top, lighter cool gray on the sides; NEVER change hair color between frames; NEVER black hair; NEVER brown hair; NEVER blonde"
+
+  face:
+    eyes: "large solid black oval eyes"
+    blush: "soft pink circular cheek blush"
+    mouth: "small simple smile"
+    expression_idle: "friendly calm"
+
+  outfit:
+    shirt: "light-blue and white thin vertical striped long-sleeve collared button-down"
+    pants: "solid dark charcoal trousers"
+    shoes: "simple rounded black shoes"
+
+  proportions: "chibi large head, short body, full body head-to-toe visible"
+
+generation:
+  background: "pure solid white background, no floor, no shadow, no props"
+  camera: "full body, centered, consistent scale"
+  negative: "realistic photo, 3D render, different hair color, black hair, brown hair, blonde hair, blue hair, bald, cropped feet, cropped head, text, watermark, multiple characters, extra limbs"
+
+# 行走循环（侧视向左）：必须双腿交替，禁止同侧重复跨步
+walk_cycle_left:
+  - id: walk_left_01
+    phase: contact_A
+    pose: "side profile facing LEFT, LEFT leg planted forward (toward left), RIGHT leg trailing back with heel up, opposite arm swing, natural walking contact pose"
+  - id: walk_left_02
+    phase: passing_A
+    pose: "side profile facing LEFT, weight on nearly vertical support leg, other leg bent mid-swing passing through, foot clearly off ground, compact stride"
+  - id: walk_left_03
+    phase: contact_B
+    pose: "side profile facing LEFT, RIGHT leg planted forward (toward left), LEFT leg trailing back with heel up, arms opposite to contact_A, clear other-foot step"
+  - id: walk_left_04
+    phase: passing_B
+    pose: "side profile facing LEFT, legs coming together after opposite step, one foot lightly lifted, ready to return to first contact"
+
+actions:
+  idle:
+    - "front three-quarter standing idle, slight breath, friendly"
+  happy:
+    - "front view happy pose, bigger smile, one hand raised cheerfully"
