@@ -246,14 +246,8 @@ def write_launcher_and_readme(dist_app: Path) -> None:
     _chmod_exec(launcher)
     print(f"已生成: {launcher_zh.name} / {launcher.name}")
 
-    icon_png = dist_app / "assets" / "icons" / "app_icon_256.png"
-    if not icon_png.is_file():
-        icon_png = dist_app / "assets" / "icons" / "app_icon.png"
-    icon_abs = str(icon_png.resolve()) if icon_png.is_file() else "mini-lu"
-    run_abs = str((dist_app / "run_mini_lu.sh").resolve())
-    path_abs = str(dist_app.resolve())
-
-    # 模板：安装脚本会改成用户目录下的最终路径；包内文件也可直接用（绝对路径）
+    # 包内 desktop 用相对路径，避免把打包机绝对路径（含用户名）打进发行包。
+    # 用户执行 install_to_menu.sh 时会写入 ~/.local/share/applications 下的绝对路径。
     desktop_text = (
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -264,11 +258,10 @@ def write_launcher_and_readme(dist_app: Path) -> None:
         "GenericName[zh_CN]=桌面宠物\n"
         "Comment=Desktop pet with chat agent\n"
         "Comment[zh_CN]=桌面宠物与对话助手\n"
-        f'Exec="{run_abs}"\n'
-        f"Path={path_abs}\n"
-        # 优先主题名；未跑 install 时用绝对 PNG 兜底（部分 DE 对绝对路径图标支持差）
+        'Exec=./run_mini_lu.sh\n'
+        "Path=.\n"
         "Icon=mini-lu\n"
-        f"X-MiniLu-IconFallback={icon_abs}\n"
+        "X-MiniLu-IconFallback=assets/icons/app_icon_256.png\n"
         "Terminal=false\n"
         "Categories=Utility;\n"
         "Keywords=pet;agent;chat;desktop;Mini_Lu;桌宠;助手;\n"
@@ -278,7 +271,7 @@ def write_launcher_and_readme(dist_app: Path) -> None:
     desktop = dist_app / "mini-lu.desktop"
     desktop.write_text(desktop_text, encoding="utf-8")
     _chmod_exec(desktop)
-    print(f"已生成: {desktop.name}")
+    print(f"已生成: {desktop.name}（相对路径，不含本机绝对路径）")
 
     install_sh = dist_app / "install_to_menu.sh"
     install_sh.write_text(
