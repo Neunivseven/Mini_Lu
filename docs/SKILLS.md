@@ -47,8 +47,8 @@ always_inject: false              # true=正文自动注入 system（慎用）
 
 配置文件：
 
-- `config/skills.yaml` — 默认（可进 git）
-- `config/skills.local.yaml` — 本机启用/禁用、`skill_modes`（gitignore）
+- `config/skills.yaml` — 默认
+- `config/skills.local.yaml` — 本机启用/禁用、`skill_modes`
 
 ## 模式对照
 

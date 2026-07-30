@@ -39,10 +39,12 @@ def _read_local() -> dict[str, Any]:
 def _write_local(data: dict[str, Any]) -> None:
     path = models_local_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
+    body = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    header = (
+        "# 本地模型覆盖（可由「模型设置」自动生成/更新）\n"
+        "# 模板见 models.local.yaml.example\n"
     )
+    path.write_text(header + body, encoding="utf-8")
 
 
 def list_providers(

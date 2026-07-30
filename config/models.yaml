@@ -1,5 +1,5 @@
 # 多模型统一配置（推荐）
-# 密钥请写到 config/models.local.yaml 或 llm.local.yaml（已被 gitignore）
+# 密钥请写到 config/models.local.yaml 或 llm.local.yaml（见 models.local.yaml.example）
 # Chat 驱动均为 openai_compat：凡提供 OpenAI Chat Completions 兼容接口的服务均可接入。
 # 也可继续只用旧版 llm.yaml —— 程序会自动兼容。
 

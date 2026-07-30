@@ -1,5 +1,5 @@
-# 复制为 models.local.yaml 后填写密钥（已被 gitignore）
-# 也可继续只用 llm.local.yaml —— 会自动合并到 active.chat
+# 模型本地覆盖模板：复制为 models.local.yaml 后填写，
+# 或启动后在「模型设置」面板配置，应用时会自动生成该文件。
 #
 # 切换对话模型示例：
 # active:

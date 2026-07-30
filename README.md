@@ -46,7 +46,7 @@
 
 ## 开源内容说明
 
-本项目**自有代码**主要在 `main.py`、`agent/`、`config/` 示例、`assets/` 皮肤与图标、以及部分内置 `skills/`。下列为**通过依赖或本机旁路引用**的开源能力，**请勿将大型上游源码树整仓提交**（已在 `.gitignore` 中排除）。
+本项目**自有代码**主要在 `main.py`、`agent/`、`config/` 示例、`assets/` 皮肤与图标、以及部分内置 `skills/`。下列为通过依赖引用的开源能力；大型上游源码树请用 pip 安装，勿整仓并入本项目。
 
 ### 运行时依赖（pip，见 `requirements.txt`）
 
@@ -59,28 +59,21 @@
 | [termqt](https://pypi.org/project/termqt/) | 终端控件 | 以 PyPI / 上游为准 |
 | [tree-sitter-analyzer](https://github.com/aimasteracc/tree-sitter-analyzer) | 代码结构分析 | MIT |
 | [MCP](https://modelcontextprotocol.io/) 及相关适配器 | 可选外部工具协议 | 以各包为准 |
+| pydantic / typing_extensions | 结构化输出与类型 | MIT |
 | markdown / PyYAML / Pillow / PyMuPDF 等 | 渲染、配置、图像、PDF | 多为 BSD / MIT / AGPL 等，**以各包 LICENSE 为准** |
 
-安装：`pip install -r requirements.txt`。本地开发若需可编辑 TSA，可另：`pip install -e ./tree-sitter-analyzer-main`（该目录仅作本机克隆，不入库）。
-
-### 可选本机旁路（不嵌入默认发行逻辑）
-
-| 内容 | 如何引用 | 说明 |
-|------|----------|------|
-| **MetaCoding** | `agent/metacoding_bridge.py` 调用旁路仓库 / Bun CLI | 未安装则降级；**不打进默认 exe** |
-| **Marker / MinerU** | 历史可选 PDF 引擎 | **当前默认已改用内置 PyMuPDF 等**，无需随仓携带 |
-| 本地克隆的 `langchain-master` / `langgraph-main` 等 | 仅开发对照 | 已忽略；正式依赖走 PyPI |
+安装：`pip install -r requirements.txt`。本地开发若需可编辑 TSA，可另：`pip install -e ./tree-sitter-analyzer-main`。
 
 ### 内置 Skills 与风格参考
 
 - `skills/` 下为 Mini_Lu 可加载的 Skill 说明书（`SKILL.md`）。
-- 部分 Skill 的**编排写法与主题**参考了 Cursor Agent Skills / 社区 skill 包的常见结构（短说明书 + YAML 头 + 按需注入），**并非**把上游整仓 vendoring 进本仓库；本地的 `agent-skills/`、`ai-agent-skills/` 仅作参考，已 `.gitignore`。
+- 部分 Skill 的编排写法与主题参考了 Cursor Agent Skills / 社区 skill 包的常见结构（短说明书 + YAML 头 + 按需注入），并非把上游整仓 vendoring 进本仓库。
 - 使用或再分发 Skills 正文时，请自行核对各 Skill 文件内的来源与许可说明（若有）。
 
 ### 命名说明
 
 - 工作台内的 `MonacoEditor`（`agent/monaco_editor.py`）是 **QPlainTextEdit + 语法高亮** 的自研组件，**不是**嵌入 Microsoft Monaco Editor；命名仅为编辑区习惯称呼。
-- Windows 打包若需改 exe 图标，可本机准备 [rcedit](https://github.com/electron/rcedit) 等工具；**二进制不入库**。
+- Windows 打包若需改 exe 图标，可本机准备 [rcedit](https://github.com/electron/rcedit) 等工具。
 
 ### 第三方许可义务
 
@@ -95,12 +88,15 @@ cd /path/to/my_item
 python3 -m venv .venv && source .venv/bin/activate   # Windows: py -3 -m venv .venv
 pip install -U pip
 pip install -r requirements.txt
-
-cp config/models.local.yaml.example config/models.local.yaml
-# 编辑 models.local.yaml，填入 API Key（该文件已被 gitignore）
-
 python main.py
 ```
+
+### 配置 API Key（二选一）
+
+1. **模板手改**：复制 `config/models.local.yaml.example` → `config/models.local.yaml`，填入密钥后重启或刷新模型。  
+2. **界面自动生成**：启动后打开「模型设置」（右键宠物 / 工作台），填写密钥与模型并点「应用」——会自动创建或更新 `config/models.local.yaml`。
+
+兼容旧版时可复制 `config/llm.local.yaml.example` → `llm.local.yaml`（会合并进对应 chat 条目）。
 
 冒烟（可选）：
 
@@ -122,10 +118,10 @@ my_item/
 │   ├── desktop/         # PanelManager / AgentController
 │   ├── providers/       # 多模型适配
 │   └── ...
-├── config/              # 默认配置 + *.example（密钥用 *.local.yaml）
+├── config/              # 默认配置 + *.example 模板
 ├── assets/              # 皮肤、图标
 ├── skills/              # 内置 Skills
-├── data/                # 运行数据（默认忽略入库）
+├── data/                # 运行数据（本机生成）
 ├── docs/                # UBUNTU.md、SKILLS.md
 ├── requirements.txt
 ├── build_linux.py       # Linux 打包
@@ -138,15 +134,15 @@ my_item/
 ## 打包（摘要）
 
 1. 在**目标操作系统**本机打包：Linux → `python build_linux.py`；Windows → `python build_exe.py` 或 `build_exe.bat`。
-2. 产物为文件夹 `dist/Mini_Lu/`（勿只拷单文件；勿提交 `dist/`）。
-3. 打包前确认源码可 `python main.py`，且 `models.local.yaml` 是否应进入发行包（含 Key 则勿外传）。
+2. 产物为文件夹 `dist/Mini_Lu/`（勿只拷单文件）。
+3. 打包前确认源码可 `python main.py`；含 Key 的 `models.local.yaml` 勿随意外传。
 
-更完整的 Ubuntu / Windows 步骤与排错仍以本文件历史说明与 `docs/UBUNTU.md` 为准；发版检查清单：
+更完整的 Ubuntu / Windows 步骤与排错见 `docs/UBUNTU.md`；发版检查清单：
 
 1. [ ] `python main.py` 正常  
-2. [ ] 无密钥进入公开仓库（`*.local.yaml` / `.env`）  
+2. [ ] 公开分发内容不含密钥（检查 `*.local.yaml` / `.env`）  
 3. [ ] Linux / Windows 各自本机打包试跑  
-4. [ ] 发行说明使用包内「请读我.txt」，而非误把开发用 README 当唯一用户文档  
+4. [ ] 发行说明使用包内「请读我.txt」  
 
 ---
 
@@ -156,5 +152,5 @@ my_item/
 |------|------|
 | [`docs/UBUNTU.md`](docs/UBUNTU.md) | Ubuntu 源码运行与打包要点 |
 | [`docs/SKILLS.md`](docs/SKILLS.md) | Skills 接入约定 |
-| [`config/models.local.yaml.example`](config/models.local.yaml.example) | 模型密钥示例 |
-| [`.env.example`](.env.example) | 素材管线用环境变量示例 |
+| [`config/models.local.yaml.example`](config/models.local.yaml.example) | 模型本地配置模板 |
+| [`.env.example`](.env.example) | 素材管线环境变量示例 |

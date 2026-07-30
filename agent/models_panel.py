@@ -591,7 +591,8 @@ class ModelsPanel(QWidget):
         inform(
             self,
             "模型设置",
-            f"已切换对话 API → {pid}\n能力：{_cap_label(caps)}",
+            f"已切换对话 API → {pid}\n能力：{_cap_label(caps)}\n"
+            f"已写入 config/models.local.yaml",
         )
 
     def _apply_side(self):
@@ -612,7 +613,8 @@ class ModelsPanel(QWidget):
         inform(
             self,
             "旁路能力",
-            f"ASR → {asr_id or '关闭'}\nVision → {vision_id or '关闭'}",
+            f"ASR → {asr_id or '关闭'}\nVision → {vision_id or '关闭'}\n"
+            f"已写入 config/models.local.yaml",
         )
 
     def _apply_custom(self):
@@ -630,7 +632,11 @@ class ModelsPanel(QWidget):
             return
         self.reload()
         self.models_changed.emit()
-        inform(self, "自定义端点", msg + f"\n能力：{_cap_label(caps)}")
+        inform(
+            self,
+            "自定义端点",
+            msg + f"\n能力：{_cap_label(caps)}\n已写入 config/models.local.yaml",
+        )
 
     def show_panel(self):
         prepare_toplevel_show(self, activate=True)

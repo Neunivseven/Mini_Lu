@@ -1,4 +1,4 @@
-# 终端命令信任（本机，gitignore）
+# 终端命令信任（本机覆盖；模板见同名 *.example）
 #
 # trusted_exact: 完整命令字符串（推荐；UI「总是允许」写入此处）
 # trusted_patterns: 正则（仅建议手改本文件；过宽模式会被程序拒绝/忽略）
