@@ -29,12 +29,11 @@ ASSETS_DST = DIST_APP / "assets" / "skins"
 CONFIG_DST = DIST_APP / "config"
 DATA_DST = DIST_APP / "data"
 
-# 随包必带（无密钥）
+# 随包必带（无密钥、无本机路径）
 CONFIG_SHIP = (
     "llm.yaml",
     "models.yaml",
     "quotes.yaml",
-    "workspace.yaml",
     "doc_parsers.yaml",
     "metacoding.yaml",
     "mcp.yaml",
@@ -42,7 +41,7 @@ CONFIG_SHIP = (
     "agent.yaml",
 )
 
-# 本机密钥：存在则复制，便于自己换机；勿外传
+# 本机密钥 / 信任列表：默认不随包；仅当 MINI_LU_SHIP_LOCAL_CONFIG=1 时复制
 CONFIG_LOCAL = (
     "llm.local.yaml",
     "models.local.yaml",
@@ -53,21 +52,33 @@ CONFIG_LOCAL = (
     "command_trust.local.yaml",
 )
 
-# data：产品种子（可随包）；用户运行时数据绝不从开发机复制
-DATA_PRODUCT_SEED = (
-    "prompts.json",  # 内置 Prompt 模板
-    "quotes.json",  # 内置语录
+# 用户偏好 / 布局（永不随公开包）
+CONFIG_USER_PREFS = (
+    "studio_prefs.yaml",
+    "ui_theme.yaml",
+    "workspace.yaml",
 )
 
-# 开发机上的个人/运行时数据 —— 打包时跳过，目标机首次运行会自行生成
+# data：默认不带开发机上的任何文件；目标机首次运行自行生成
+DATA_PRODUCT_SEED: tuple[str, ...] = ()
+
+# 开发机上的个人/运行时数据 —— 打包时跳过（含聊天、记忆、checkpoint）
 DATA_USER_RUNTIME = (
     "chat_history.json",
     "notes.json",
+    "notes.md",
     "memory.json",
     "reminders.json",
+    "reminders.json.bak",
+    "reminders.json.migrated",
     "goal.json",
     "apps_index.json",
     "identity.json",
+    "prompts.json",
+    "quotes.json",
+    "lg_checkpoints.sqlite",
+    "lg_store.sqlite",
+    "_studio_smoke.py",
 )
 
 DATA_DIRS = (
@@ -190,7 +201,12 @@ def ensure_pyinstaller() -> None:
 
 
 def copy_config_and_data(dist_app: Path) -> None:
-    """把 config / data 放到 exe 同级，供 Agent 读密钥与持久化。"""
+    """把 config / data 放到可执行文件同级。
+
+    默认不复制本机密钥与用户运行数据；公开分发前会再跑 sanitize_public_dist。
+    """
+    import os
+
     src_cfg = ROOT / "config"
     config_dst = dist_app / "config"
     data_dst = dist_app / "data"
@@ -198,17 +214,33 @@ def copy_config_and_data(dist_app: Path) -> None:
         shutil.rmtree(config_dst)
     config_dst.mkdir(parents=True, exist_ok=True)
 
+    ship_local = os.environ.get("MINI_LU_SHIP_LOCAL_CONFIG", "").strip() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
     if src_cfg.is_dir():
         for p in sorted(src_cfg.iterdir()):
             if not p.is_file():
                 continue
             name = p.name
+            if name in CONFIG_USER_PREFS:
+                print(f"已跳过用户偏好: config/{name}")
+                continue
             if name.endswith(".example") or name in CONFIG_SHIP:
                 shutil.copy2(p, config_dst / name)
                 print(f"已复制配置: config/{name}")
             elif name in CONFIG_LOCAL:
-                shutil.copy2(p, config_dst / name)
-                print(f"已复制本地密钥配置: config/{name}（勿把含 Key 的整个文件夹随意外传）")
+                if ship_local:
+                    shutil.copy2(p, config_dst / name)
+                    print(
+                        f"已复制本地配置: config/{name}"
+                        "（MINI_LU_SHIP_LOCAL_CONFIG=1；勿公开外传）"
+                    )
+                else:
+                    print(f"已跳过本地密钥/覆盖: config/{name}")
 
     for miss in CONFIG_SHIP:
         if not (config_dst / miss).is_file() and (src_cfg / miss).is_file():
@@ -218,7 +250,6 @@ def copy_config_and_data(dist_app: Path) -> None:
     for d in DATA_DIRS:
         (data_dst / d).mkdir(parents=True, exist_ok=True)
 
-    # 只带产品种子；聊天记录等用户数据不打包
     for name in DATA_PRODUCT_SEED:
         src = ROOT / "data" / name
         if src.is_file():
@@ -226,19 +257,78 @@ def copy_config_and_data(dist_app: Path) -> None:
             print(f"已复制数据种子: data/{name}")
 
     skipped = [n for n in DATA_USER_RUNTIME if (ROOT / "data" / n).is_file()]
+    # 也跳过任意 sqlite / log
+    for p in (ROOT / "data").glob("*") if (ROOT / "data").is_dir() else []:
+        if p.is_file() and (
+            p.suffix in {".sqlite", ".log", ".bak"}
+            or p.name.endswith(".sqlite-wal")
+            or p.name.endswith(".sqlite-shm")
+        ):
+            if p.name not in skipped:
+                skipped.append(p.name)
     if skipped:
         print(
             "已跳过用户运行时数据（不随包）: "
             + ", ".join(f"data/{n}" for n in skipped)
         )
 
-    # 示例工作流（若有）
-    src_wf = ROOT / "data" / "workflows"
-    dst_wf = data_dst / "workflows"
-    if src_wf.is_dir():
-        for p in src_wf.glob("*.json"):
-            shutil.copy2(p, dst_wf / p.name)
-            print(f"已复制工作流: data/workflows/{p.name}")
+    # 不复制开发机 workflows（可能含个人脚本）；仅保留空目录
+    print("data/workflows 保持空目录（不复制开发机工作流）")
+
+
+def sanitize_public_dist(dist_app: Path) -> list[str]:
+    """公开分发前再清扫：密钥、偏好、聊天/记忆/日志/checkpoint。
+
+    返回已删除路径列表（相对 dist_app）。
+    """
+    removed: list[str] = []
+    cfg = dist_app / "config"
+    if cfg.is_dir():
+        for p in list(cfg.iterdir()):
+            if not p.is_file():
+                continue
+            name = p.name
+            drop = False
+            if name in CONFIG_USER_PREFS or name in CONFIG_LOCAL:
+                drop = True
+            elif name.endswith(".local.yaml") or name.endswith(".local.yml"):
+                drop = True
+            elif name.endswith(".log"):
+                drop = True
+            if drop:
+                p.unlink(missing_ok=True)
+                removed.append(f"config/{name}")
+
+    data = dist_app / "data"
+    if data.is_dir():
+        for p in list(data.rglob("*")):
+            if p.is_dir():
+                continue
+            rel = p.relative_to(dist_app).as_posix()
+            # 保留占位
+            if p.name == ".gitkeep":
+                continue
+            p.unlink(missing_ok=True)
+            removed.append(rel)
+        # 清空目录后重建标准空结构
+        for d in DATA_DIRS:
+            (data / d).mkdir(parents=True, exist_ok=True)
+        keep = data / ".gitkeep"
+        if not keep.exists():
+            keep.write_text("", encoding="utf-8")
+
+    # 根目录日志
+    for p in dist_app.glob("*.log"):
+        p.unlink(missing_ok=True)
+        removed.append(p.name)
+
+    if removed:
+        print("公开包已清除隐私/运行数据:")
+        for r in removed:
+            print(f"  - {r}")
+    else:
+        print("公开包检查：无额外隐私文件需清除")
+    return removed
 
 
 def copy_qt_plugins(dist_app: Path) -> None:
@@ -768,6 +858,7 @@ def main() -> int:
 
     copy_qt_plugins(dist_app)
     copy_config_and_data(dist_app)
+    sanitize_public_dist(dist_app)
     copy_skins(dist_app)
     copy_skills(dist_app)
     copy_docs(dist_app)

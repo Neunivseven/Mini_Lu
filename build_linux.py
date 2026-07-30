@@ -620,6 +620,7 @@ def main() -> int:
     copy_qt_plugins(dist_app)
     fix_openssl_libs(dist_app)
     be.copy_config_and_data(dist_app)
+    be.sanitize_public_dist(dist_app)
     be.copy_skins(dist_app)
     be.copy_skills(dist_app)
     be.copy_docs(dist_app)
