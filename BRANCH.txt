@@ -1,5 +1,6 @@
 Mini_Lu Ubuntu 发行目录（分支 Ubuntu-Release）
 运行：./run_mini_lu.sh 或 ./启动Mini_Lu.sh
 菜单：./install_to_menu.sh
-API：复制 config/models.local.yaml.example 为 models.local.yaml 后填写，
-或启动后在「模型设置」中配置（会自动生成）。
+API：复制 config/models.local.yaml.example 为 models.local.yaml，
+或启动后在「模型设置」中配置。
+本包不含聊天记录、用户偏好与运行日志。
