@@ -13,17 +13,21 @@ config/*.local.yml
 !**/*.local.yaml.example
 !**/*.local.yml.example
 
-# 用户偏好 / 本机路径（可按需取消忽略）
+# 用户偏好 / 本机路径
 config/studio_prefs.yaml
 config/ui_theme.yaml
 config/workspace.yaml
 
 # —— 运行期用户数据 ——
+data/**
+!data/.gitkeep
 data/notes.md
 data/notes.json
 data/memory.json
 data/apps_index.json
 data/reminders.json
+data/reminders.json.bak
+data/reminders.json.migrated
 data/quotes.json
 data/chat_history.json
 data/goal.json
@@ -36,9 +40,12 @@ data/workflows/
 data/*.sqlite
 data/*.sqlite-*
 data/_studio_smoke.py
-data/reminders.json
-data/reminders.json.bak
-data/reminders.json.migrated
+
+# —— 临时审查 / 本地笔记（勿入库）——
+review.md
+kimi_review.md
+*_review.md
+.cursor/
 
 # —— Python / 工具缓存 ——
 __pycache__/
@@ -57,14 +64,25 @@ env/
 *.egg-info/
 .eggs/
 dist_pkg/
+*.log
+logs/
 
 # —— 打包产物 ——
 build/
 dist/
 *.spec.bak
-# 保留规格文件若存在于仓库根：Mini_Lu.spec 可提交；临时 spec 忽略
+# 保留 Mini_Lu.spec；旧名与临时 spec 忽略
 *.spec
 !Mini_Lu.spec
+DesktopPet.spec
+
+# —— 二进制 / 本机工具 ——
+*.exe
+*.dll
+*.so
+*.dylib
+# 保留仓库内脚本；打包辅助 exe 不入库
+tools/*.exe
 
 # —— 系统杂项 ——
 .DS_Store
@@ -77,11 +95,11 @@ Thumbs.db
 *.code-workspace
 
 # —— 素材管线临时文件 ——
-raw_video/_*.png
-raw_video/_*/
+raw_video/
 raw_q_gen/
 
-# —— 体积很大的第三方源码树（本项目不依赖整树入库；需要时用 pip/子模块）——
+# —— 体积很大的第三方源码树（用 pip / 本机旁路，勿整树入库）——
+tree-sitter-analyzer-main/
 MetaCoding-main/
 langchain-master/
 langgraph-main/

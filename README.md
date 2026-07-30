@@ -1,331 +1,160 @@
-# Mini_Lu（桌面宠物 + Agent 工作台）
+# Mini_Lu
 
-PySide6 桌面宠物，内置对话 Agent、工作区代码编辑、Skills / MCP 扩展。
+桌面宠物 + Agent 工作台：用 PySide6 做桌面形象与面板，用 LangChain / LangGraph 做对话与工具编排。
 
-> **本文件（项目根目录 `README.md`）仅供开发与打包参考，不会打进发行包。**  
-> 发行目录 `dist/Mini_Lu/` 内另有简短「请读我.txt」与 `docs/` 运行说明。
-
-手机端为独立工程，与本仓库互不覆盖。
+> 本 README 面向开发与源码分发。发行目录 `dist/Mini_Lu/` 内另有「请读我.txt」；Ubuntu 细节见 [`docs/UBUNTU.md`](docs/UBUNTU.md)，Skills 约定见 [`docs/SKILLS.md`](docs/SKILLS.md)。
 
 ---
 
-## 目录速览
+## 功能概览
 
-```
-my_item/
-├── main.py                 # 运行入口
-├── requirements.txt
-├── build_linux.py          # Ubuntu / Linux 打包
-├── build_exe.py            # Windows 打包
-├── README.md               # 本说明（不入包）
-├── config/                 # 模型、工作区、MCP、Skills 等
-├── agent/                  # Agent / UI / 工具
-├── assets/                 # 皮肤、图标
-├── data/                   # 记事、记忆、对话等运行数据
-├── skills/                 # 内置 Skills
-├── docs/                   # SKILLS.md、UBUNTU.md（会部分入包）
-└── dist/Mini_Lu/           # 打包产物（勿提交密钥）
-```
+| 能力 | 说明 |
+|------|------|
+| 桌面宠物 | 置顶透明窗、多皮肤帧动画、拖拽 / 踱步 / 点选移动、系统托盘 |
+| 对话 Agent | 多会话独立上下文；流式回复；气泡与工作台双入口 |
+| Agent 工作台 | 聊天、会话列表、代码编辑、改动对比（保留/放弃）、文件树、内嵌终端 |
+| 工作区 | 打开文件夹作为可读写根目录；路径沙箱与写前备份 |
+| 工具调用 | 读改文件、终端命令（可审批）、记事 / 闹钟、打开本机应用等 |
+| Plan / ReAct | 简单任务走 ReAct；明确多步任务可走 Plan-and-Execute |
+| 多模型 | DeepSeek / Moonshot(Kimi) / 通义 / OpenAI 兼容端等；Chat / ASR / Vision 分流 |
+| Skills | `skills/*/SKILL.md` 按需加载，扩展面板管理 |
+| MCP | 通过配置接入外部 MCP 服务器（可选依赖） |
+| 文档附件 | PDF / Word / 表格等解析后进对话（内置解析，不依赖 Marker/MinerU） |
+| 代码结构 | 工作区内符号 / 调用关系查询（依赖 `tree-sitter-analyzer`） |
 
 ---
 
-## 源码运行
+## 技术栈与框架
 
-### 依赖环境
+| 层级 | 选用 | 用途 |
+|------|------|------|
+| UI | **PySide6**（Qt for Python） | 桌宠窗、工作台、面板、托盘 |
+| 终端仿真 | **termqt** | 工作台内嵌终端（pty） |
+| Agent 编排 | **LangGraph** + **LangChain** | ReAct / Plan-Execute、工具节点、checkpoint |
+| LLM SDK | **openai**（兼容多厂商）、**langchain-openai** | Chat Completions / 媒体能力 |
+| 配置 | **PyYAML** | `config/*.yaml` |
+| 渲染 | **markdown**、自研气泡 / 消息视图 | 助手回复展示 |
+| 文档 | **PyMuPDF** / **pypdf**、**python-docx**、**openpyxl**、**reportlab** | 解析与简单写出 |
+| 代码智能 | **tree-sitter-analyzer** | AST / 符号 / 调用图（pip 安装） |
+| MCP（可选） | **mcp**、**langchain-mcp-adapters** | 消费外部 MCP 工具 |
+| 打包 | **PyInstaller**（开发时安装） | `build_linux.py` / `build_exe.py` → `dist/Mini_Lu/` |
+| 图像（素材管线） | **Pillow**；抠图等可用独立环境的 rembg | 皮肤帧处理脚本 |
 
-| 项 | 建议 |
-|----|------|
-| Python | 3.10+（推荐 3.11 / 3.12） |
-| 系统 | Windows 10/11，或 Ubuntu 22.04 / 24.04 |
-| 图形 | 需桌面会话（纯 SSH 无 DISPLAY 无法开 UI） |
+运行要求：Python **3.10+**（推荐 3.11 / 3.12），Windows 10/11 或 Ubuntu 22.04 / 24.04，需图形桌面会话。
 
-Ubuntu 系统库示例：
+---
 
-```bash
-sudo apt update
-sudo apt install -y \
-  python3 python3-venv python3-pip python3-dev \
-  libgl1 libegl1 libxkbcommon0 \
-  libxcb-cursor0 libxcb-xinerama0 \
-  fonts-noto-cjk fonts-wqy-microhei \
-  xclip wl-clipboard
-```
+## 开源内容说明
 
-### 安装与启动
+本项目**自有代码**主要在 `main.py`、`agent/`、`config/` 示例、`assets/` 皮肤与图标、以及部分内置 `skills/`。下列为**通过依赖或本机旁路引用**的开源能力，**请勿将大型上游源码树整仓提交**（已在 `.gitignore` 中排除）。
+
+### 运行时依赖（pip，见 `requirements.txt`）
+
+| 项目 | 角色 | 常见协议（以官方仓库为准） |
+|------|------|---------------------------|
+| [PySide6](https://doc.qt.io/qtforpython/) / Qt | 桌面 UI | LGPL / 商业双授权等（以 Qt 文档为准） |
+| [LangChain](https://github.com/langchain-ai/langchain) | 工具与消息抽象 | MIT |
+| [LangGraph](https://github.com/langchain-ai/langgraph) | Agent 状态图、checkpoint | MIT |
+| [OpenAI Python SDK](https://github.com/openai/openai-python) | 兼容 Chat API 客户端 | MIT |
+| [termqt](https://pypi.org/project/termqt/) | 终端控件 | 以 PyPI / 上游为准 |
+| [tree-sitter-analyzer](https://github.com/aimasteracc/tree-sitter-analyzer) | 代码结构分析 | MIT |
+| [MCP](https://modelcontextprotocol.io/) 及相关适配器 | 可选外部工具协议 | 以各包为准 |
+| markdown / PyYAML / Pillow / PyMuPDF 等 | 渲染、配置、图像、PDF | 多为 BSD / MIT / AGPL 等，**以各包 LICENSE 为准** |
+
+安装：`pip install -r requirements.txt`。本地开发若需可编辑 TSA，可另：`pip install -e ./tree-sitter-analyzer-main`（该目录仅作本机克隆，不入库）。
+
+### 可选本机旁路（不嵌入默认发行逻辑）
+
+| 内容 | 如何引用 | 说明 |
+|------|----------|------|
+| **MetaCoding** | `agent/metacoding_bridge.py` 调用旁路仓库 / Bun CLI | 未安装则降级；**不打进默认 exe** |
+| **Marker / MinerU** | 历史可选 PDF 引擎 | **当前默认已改用内置 PyMuPDF 等**，无需随仓携带 |
+| 本地克隆的 `langchain-master` / `langgraph-main` 等 | 仅开发对照 | 已忽略；正式依赖走 PyPI |
+
+### 内置 Skills 与风格参考
+
+- `skills/` 下为 Mini_Lu 可加载的 Skill 说明书（`SKILL.md`）。
+- 部分 Skill 的**编排写法与主题**参考了 Cursor Agent Skills / 社区 skill 包的常见结构（短说明书 + YAML 头 + 按需注入），**并非**把上游整仓 vendoring 进本仓库；本地的 `agent-skills/`、`ai-agent-skills/` 仅作参考，已 `.gitignore`。
+- 使用或再分发 Skills 正文时，请自行核对各 Skill 文件内的来源与许可说明（若有）。
+
+### 命名说明
+
+- 工作台内的 `MonacoEditor`（`agent/monaco_editor.py`）是 **QPlainTextEdit + 语法高亮** 的自研组件，**不是**嵌入 Microsoft Monaco Editor；命名仅为编辑区习惯称呼。
+- Windows 打包若需改 exe 图标，可本机准备 [rcedit](https://github.com/electron/rcedit) 等工具；**二进制不入库**。
+
+### 第三方许可义务
+
+二次分发（含 PyInstaller 打包）时，请遵守各依赖的许可证要求（声明、源码提供、LGPL 动态链接约定等）。本仓库未将上游完整源码树一并发布；**以你实际 `pip freeze` / 打包 `_internal` 中的版本为准核对 LICENSE**。
+
+---
+
+## 源码快速开始
 
 ```bash
 cd /path/to/my_item
-
-# Linux
-python3 -m venv .venv && source .venv/bin/activate
-# Windows（PowerShell）
-# py -3 -m venv .venv ; .\.venv\Scripts\Activate.ps1
-
+python3 -m venv .venv && source .venv/bin/activate   # Windows: py -3 -m venv .venv
 pip install -U pip
 pip install -r requirements.txt
 
 cp config/models.local.yaml.example config/models.local.yaml
-# 编辑 models.local.yaml，填入 DeepSeek / 豆包等 API Key
+# 编辑 models.local.yaml，填入 API Key（该文件已被 gitignore）
 
 python main.py
 ```
 
-可选冒烟：
+冒烟（可选）：
 
 ```bash
 python -m agent.smoke_test_llm
 python -m agent.smoke_test_agent
 ```
 
-### 常用配置
-
-| 文件 | 作用 |
-|------|------|
-| `config/models.yaml` | 多模型路由（chat / asr / vision） |
-| `config/models.local.yaml` | **本地密钥**（勿外传、勿提交） |
-| `config/agent.yaml` | Plan-and-Execute 等 Agent 策略 |
-| `config/workspace.yaml` | 工作区根目录 |
-| `config/skills.yaml` / `skills.local.yaml` | Skills 开关与模式 |
-| `config/mcp.yaml` / `mcp.local.yaml` | MCP 服务器 |
-| `config/ui_theme.yaml` | 工作台主题 |
-| `config/studio_prefs.yaml` | 工作台布局偏好（用户习惯） |
-
-右键宠物形象也可打开：模型设置、工作台、Skills / MCP 等。
+Ubuntu 系统库与 Wayland / 托盘说明见 [`docs/UBUNTU.md`](docs/UBUNTU.md)。
 
 ---
 
-## 打包总原则
-
-1. **在目标系统本机打包**：Linux 用 `build_linux.py`，Windows 用 `build_exe.py`。不要把 `.exe` 拷到 Ubuntu，也不要指望在 Windows 上打出 Linux 包。
-2. **先保证源码能跑**：当前环境必须能 `python main.py`，且能 `import PySide6.QtWidgets`。
-3. **产物是文件夹**：`dist/Mini_Lu/`（推荐文件夹版，比单文件稳定）。移植时复制**整个** `Mini_Lu` 目录。
-4. **不要运行 `build/` 下的临时产物**：只运行 `dist/Mini_Lu/` 里的可执行文件 / 启动脚本。
-5. **根目录 `README.md` 不会打进包**；包内说明以「请读我.txt」和 `docs/` 为准。
-
-需要 PyInstaller：
-
-```bash
-pip install pyinstaller
-```
-
-（若未安装，部分脚本会尝试自动安装。）
-
----
-
-## Ubuntu / Linux 打包教程
-
-### 1. 准备环境
-
-```bash
-cd /path/to/my_item
-# 激活你平时跑桌宠的环境，例如：
-conda activate minilu
-# 或：source .venv/bin/activate
-
-python -c "from PySide6.QtWidgets import QApplication; print('Qt OK')"
-pip install pyinstaller
-```
-
-若用 **conda**，务必用该环境的 Python 打包，避免 OpenSSL 版本错配。
-
-### 2. 执行打包
-
-```bash
-python build_linux.py
-```
-
-成功后大致结构：
+## 目录结构（源码）
 
 ```text
-dist/Mini_Lu/
-  Mini_Lu                 ← 主程序
-  run_mini_lu.sh          ← ASCII 启动脚本（菜单推荐）
-  启动Mini_Lu.sh          ← 中文启动脚本
-  install_to_menu.sh      ← 注册系统应用菜单（含图标）
-  mini-lu.desktop
-  请读我.txt
-  assets/                 ← 皮肤、图标
-  config/
-  data/
-  skills/
-  docs/                   ← SKILLS.md、UBUNTU.md 等
-  _internal/              ← Qt / Agent 等依赖
+my_item/
+├── main.py              # 入口：桌宠宿主
+├── agent/               # Agent、工作台 UI、工具、providers
+│   ├── desktop/         # PanelManager / AgentController
+│   ├── providers/       # 多模型适配
+│   └── ...
+├── config/              # 默认配置 + *.example（密钥用 *.local.yaml）
+├── assets/              # 皮肤、图标
+├── skills/              # 内置 Skills
+├── data/                # 运行数据（默认忽略入库）
+├── docs/                # UBUNTU.md、SKILLS.md
+├── requirements.txt
+├── build_linux.py       # Linux 打包
+├── build_exe.py         # Windows 打包
+└── Mini_Lu.spec         # PyInstaller 规格（可选）
 ```
-
-### 3. 本机试跑
-
-```bash
-cd dist/Mini_Lu
-./run_mini_lu.sh
-# 或
-./启动Mini_Lu.sh
-```
-
-Wayland 下窗口异常时可：
-
-```bash
-export QT_QPA_PLATFORM=xcb
-./run_mini_lu.sh
-```
-
-### 4. 加入系统应用菜单（重要）
-
-**不要只 `cp mini-lu.desktop`。** Ubuntu / GNOME 通常还需要把图标装进用户图标主题目录，并刷新桌面数据库。
-
-在发行目录执行：
-
-```bash
-cd dist/Mini_Lu
-./install_to_menu.sh
-```
-
-然后在应用菜单搜索 **Mini_Lu** 或 **桌宠**。  
-若仍看不到：注销重登，或 GNOME 下 `Alt+F2` 输入 `r` 回车刷新 Shell。
-
-卸载菜单项（脚本末尾也会提示）：
-
-```bash
-rm -f ~/.local/share/applications/mini-lu.desktop
-rm -f ~/.local/share/icons/hicolor/*/apps/mini-lu.png
-```
-
-### 5. 拷到其他 Ubuntu 电脑
-
-1. 复制整个 `dist/Mini_Lu/` 文件夹。
-2. 在目标机安装常见运行库（一般无需 Python）：
-
-```bash
-sudo apt install -y libgl1 libegl1 libxcb-cursor0 libxkbcommon0 \
-  fonts-noto-cjk xclip wl-clipboard
-```
-
-3. 再执行一次 `./install_to_menu.sh`（路径会变，必须重装菜单项）。
-4. 在目标机配置 `config/models.local.yaml`（含 Key 的包勿随意外传）。
-
-### 6. Linux 常见问题
-
-| 现象 | 处理 |
-|------|------|
-| `OPENSSL_3.3.0 not found` / 伪装成「请先安装 openai」 | 用当前 `build_linux.py` 重打（会覆盖匹配的 `libcrypto`/`libssl`）；或手动把 conda 的 `libcrypto.so.3` / `libssl.so.3` 拷进 `dist/Mini_Lu/_internal/` |
-| 菜单里没有图标 / 找不到软件 | 运行 `./install_to_menu.sh`，不要只复制 `.desktop` |
-| Qt `xcb` 插件加载失败 | 补齐 `libxcb*` / `libegl1` / `libgl1`，或 `QT_DEBUG_PLUGINS=1` 排查 |
-| 中文方框 | 安装 `fonts-noto-cjk` |
 
 ---
 
-## Windows 打包教程
+## 打包（摘要）
 
-### 1. 准备环境
+1. 在**目标操作系统**本机打包：Linux → `python build_linux.py`；Windows → `python build_exe.py` 或 `build_exe.bat`。
+2. 产物为文件夹 `dist/Mini_Lu/`（勿只拷单文件；勿提交 `dist/`）。
+3. 打包前确认源码可 `python main.py`，且 `models.local.yaml` 是否应进入发行包（含 Key 则勿外传）。
 
-在已能运行 `python main.py` 的环境（conda / venv）中：
+更完整的 Ubuntu / Windows 步骤与排错仍以本文件历史说明与 `docs/UBUNTU.md` 为准；发版检查清单：
 
-```bat
-cd path\to\my_item
-pip install pyinstaller
-python -c "from PySide6.QtWidgets import QApplication; print('Qt OK')"
-```
-
-### 2. 执行打包
-
-```bat
-python build_exe.py
-```
-
-或双击 `build_exe.bat`（若存在）。
-
-产物：
-
-```text
-dist\Mini_Lu\
-  Mini_Lu.exe
-  启动Mini_Lu.bat
-  请读我.txt
-  assets\
-  config\
-  data\
-  skills\
-  docs\
-  _internal\
-```
-
-### 3. 试跑与移植
-
-- 运行：`dist\Mini_Lu\Mini_Lu.exe` 或「启动Mini_Lu.bat」
-- **整夹复制**到目标 Windows 10/11（64 位）即可，一般无需再装 Python
-- 首次可能被杀毒拦截（未签名），允许运行即可
-- 换皮肤：改目标机上的 `assets\skins\`
-
-### 4. Windows 注意
-
-- 不要运行 `build\` 目录下的临时 exe（易缺 DLL）
-- 聊天 Markdown 渲染需要打包环境能 `import markdown`
-- API Key 放在目标机 `config\models.local.yaml`，勿把含 Key 的整包随意发给他人
-
----
-
-## 发行包会带什么 / 不会带什么
-
-### 会进入 `dist/Mini_Lu/`
-
-- 主程序与 `_internal` 依赖
-- `assets/`（皮肤、应用图标）
-- `config/`（含示例与你本机已有的非敏感配置；**若存在 `*.local.yaml` 也可能被复制，打包前请自查**）
-- `data/`、`skills/`
-- `docs/SKILLS.md`、`docs/UBUNTU.md`（若存在）
-- 启动脚本、菜单安装脚本、「请读我.txt」
-
-### 不会进入发行包
-
-| 路径 | 说明 |
-|------|------|
-| **`README.md`（本文件）** | 开发 / 打包教程，刻意不入包 |
-| `build/` | PyInstaller 临时目录 |
-| `.venv` / conda 环境本身 | 只收集运行所需库到 `_internal` |
-| 工具脚本为主的源码树 | 如 `video_to_walk.py`、`fix_q_appearance.py` 等管线脚本默认不作为「用户程序」分发 |
-| 大型无关仓库目录 | 如部分第三方源码树，除非被依赖分析打进 `_internal` |
-
-若需确认文档拷贝范围，见 `build_exe.py` 中的 `copy_docs()`：只复制 `docs/` 下白名单文件名，**从不复制根目录 README**。
-
----
-
-## 工作台与扩展（运行后）
-
-- **双击宠物**：打开 Agent 工作台（聊天、编辑、文件树、终端）
-- **顶栏「主题」**：配色；「重置布局为默认」可恢复出厂面板比例
-- **顶栏「模型」 / 聊天旁选项卡**：配置对话 API 与能力
-- **Skills**：扩展面板管理；「接入教程」按需打开
-- 布局习惯保存在 `config/studio_prefs.yaml`
-
----
-
-## 皮肤与素材工具（开发用，一般不入用户包）
-
-正式皮肤目录：`assets/skins/Q版卡通/`（`idle` / `happy` / `walk_left` / `walk_right`）。
-
-| 脚本 | 用途 |
-|------|------|
-| `video_to_walk.py` | 视频抽帧 → 抠图 → 写入行走帧 |
-| `fix_q_appearance.py` | 统一肤色、修补 idle 手部 |
-| `generate_q_assets.py` | 在线作图入库（需 `.env`） |
-| `batch_fix_bg.py` | 对现有皮肤重新 rembg |
-
-抠图管线建议使用含 `rembg` 的独立环境，与日常运行环境分开亦可。
+1. [ ] `python main.py` 正常  
+2. [ ] 无密钥进入公开仓库（`*.local.yaml` / `.env`）  
+3. [ ] Linux / Windows 各自本机打包试跑  
+4. [ ] 发行说明使用包内「请读我.txt」，而非误把开发用 README 当唯一用户文档  
 
 ---
 
 ## 相关文档
 
-- `docs/UBUNTU.md` — Ubuntu 源码运行与打包要点
-- `docs/SKILLS.md` — Skills 约定
-- 发行包内「请读我.txt」— 给最终用户的最短说明
-
----
-
-## 推荐检查清单（发版前）
-
-1. [ ] 源码环境 `python main.py` 正常
-2. [ ] `config/models.local.yaml` 是否要打进包（含 Key 则谨慎）
-3. [ ] Linux：`python build_linux.py` → `./run_mini_lu.sh` 能开
-4. [ ] Linux：`./install_to_menu.sh` 后菜单能搜到且有图标
-5. [ ] Windows：`python build_exe.py` → `Mini_Lu.exe` 能开
-6. [ ] 确认根目录 `README.md` **未**出现在 `dist/Mini_Lu/` 中
+| 文档 | 内容 |
+|------|------|
+| [`docs/UBUNTU.md`](docs/UBUNTU.md) | Ubuntu 源码运行与打包要点 |
+| [`docs/SKILLS.md`](docs/SKILLS.md) | Skills 接入约定 |
+| [`config/models.local.yaml.example`](config/models.local.yaml.example) | 模型密钥示例 |
+| [`.env.example`](.env.example) | 素材管线用环境变量示例 |
