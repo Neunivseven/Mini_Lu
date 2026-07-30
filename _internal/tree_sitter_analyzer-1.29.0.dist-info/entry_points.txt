@@ -1,0 +1,33 @@
+[console_scripts]
+code-analyzer = tree_sitter_analyzer.cli_main:main
+find-and-grep = tree_sitter_analyzer.cli.commands.find_and_grep_cli:main
+java-analyzer = tree_sitter_analyzer.cli_main:main
+list-files = tree_sitter_analyzer.cli.commands.list_files_cli:main
+miswire-audit = tree_sitter_analyzer.miswire_audit:main
+search-content = tree_sitter_analyzer.cli.commands.search_content_cli:main
+tree-sitter-analyzer = tree_sitter_analyzer.cli_main:main
+tree-sitter-analyzer-doctor = tree_sitter_analyzer.cli_main:main_doctor
+tree-sitter-analyzer-mcp = tree_sitter_analyzer.mcp.server:main_sync
+
+[tree_sitter_analyzer.plugins]
+bash = tree_sitter_analyzer.languages.bash_plugin:BashPlugin
+c = tree_sitter_analyzer.languages.c_plugin:CPlugin
+cpp = tree_sitter_analyzer.languages.cpp_plugin:CppPlugin
+csharp = tree_sitter_analyzer.languages.csharp_plugin:CSharpPlugin
+css = tree_sitter_analyzer.languages.css_plugin:CssPlugin
+go = tree_sitter_analyzer.languages.go_plugin:GoPlugin
+html = tree_sitter_analyzer.languages.html_plugin:HtmlPlugin
+java = tree_sitter_analyzer.languages.java_plugin:JavaPlugin
+javascript = tree_sitter_analyzer.languages.javascript_plugin:JavaScriptPlugin
+json = tree_sitter_analyzer.languages.json_plugin:JSONPlugin
+kotlin = tree_sitter_analyzer.languages.kotlin_plugin:KotlinPlugin
+markdown = tree_sitter_analyzer.languages.markdown_plugin:MarkdownPlugin
+php = tree_sitter_analyzer.languages.php_plugin:PHPPlugin
+python = tree_sitter_analyzer.languages.python_plugin:PythonPlugin
+ruby = tree_sitter_analyzer.languages.ruby_plugin:RubyPlugin
+rust = tree_sitter_analyzer.languages.rust_plugin:RustPlugin
+scala = tree_sitter_analyzer.languages.scala_plugin:ScalaPlugin
+sql = tree_sitter_analyzer.languages.sql_plugin:SQLPlugin
+swift = tree_sitter_analyzer.languages.swift_plugin:SwiftPlugin
+typescript = tree_sitter_analyzer.languages.typescript_plugin:TypeScriptPlugin
+yaml = tree_sitter_analyzer.languages.yaml_plugin:YAMLPlugin

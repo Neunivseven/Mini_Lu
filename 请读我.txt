@@ -1,0 +1,31 @@
+启动方式
+  ./run_mini_lu.sh
+  或 ./启动Mini_Lu.sh
+  或 ./Mini_Lu
+
+加入 Ubuntu 应用菜单（推荐）
+  ./install_to_menu.sh
+  然后在菜单里搜索 Mini_Lu / 桌宠
+  （不要只 cp .desktop：还需安装图标到 ~/.local/share/icons）
+
+移植到其他 Ubuntu 电脑：复制整个 Mini_Lu 文件夹后，再跑一次 ./install_to_menu.sh
+不要运行项目里 build/ 目录下的临时文件。
+
+系统依赖（目标机建议安装）
+  sudo apt install -y libgl1 libegl1 libxcb-cursor0 libxkbcommon0 \
+    fonts-noto-cjk xclip wl-clipboard
+
+窗口异常（尤其 Wayland）时可：
+  export QT_QPA_PLATFORM=xcb
+  ./run_mini_lu.sh
+
+【模型 / API】
+  右键形象 →「模型设置…」；或编辑 config/models.local.yaml
+  含 API Key 的文件夹请勿随意发给他人。
+
+【聊天】
+  助手回复支持 Markdown 表格/标题（需打包时含 markdown 库）。
+
+PDF：内置 PyMuPDF（config/doc_parsers.yaml）。
+工作区：config/workspace.yaml。
+Skills / MCP：skills/ 与 config/skills.yaml、mcp.yaml。

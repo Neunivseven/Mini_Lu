@@ -1,0 +1,22 @@
+# Mini_Lu Skills（Cursor 风格 SKILL.md）
+# 目录：<应用根>/skills/<name>/SKILL.md ，也可在 data/skills/
+
+enabled: true
+
+# 自动注入到 system 的正文上限（字符）；auto / always 模式会尝试注入正文
+auto_inject_max_chars: 6000
+
+# 空=启用扫描到的全部；非空=仅这些 name
+enabled_skills: []
+
+# 额外禁用
+disabled_skills: []
+
+# 调用模式覆盖（面板「Auto / Manual / Always」写入 skills.local.yaml，不改 SKILL.md）
+# skill_modes:
+#   context-pack: manual
+
+# 相对应用根的扫描目录
+roots:
+  - skills
+  - data/skills

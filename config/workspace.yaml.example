@@ -1,0 +1,6 @@
+# 复制为 workspace.yaml 后可手工改；更推荐用桌宠界面：
+# 聊天栏「📁」或右键「工作区…」→ 打开文件夹
+
+roots:
+  # - C:/Users/wei/projects/your_repo
+active: ""

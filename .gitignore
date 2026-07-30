@@ -1,0 +1,5 @@
+# Ubuntu-Release：发行包分支
+data/**
+!data/.gitkeep
+*.local.yaml
+!**/*.local.yaml.example
