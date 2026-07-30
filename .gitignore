@@ -94,6 +94,11 @@ Thumbs.db
 .vscode/
 *.code-workspace
 
+# —— 开发用处理 / 测试脚本（非发行源码）——
+standardize_images.py
+test_doubao.py
+video_to_walk.py
+
 # —— 素材管线临时文件 ——
 raw_video/
 raw_q_gen/
