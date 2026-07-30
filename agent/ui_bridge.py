@@ -12,6 +12,7 @@ class UiBridge(QObject):
     open_prompt = Signal()
     edits_changed = Signal()
     show_bubble = Signal(str)
+    reminders_changed = Signal()  # 闹钟增删改 → 重调度到期 Timer
     # 工作线程 → 主线程：流式/终端审批等（dict，含 kind）
     agent_ui_event = Signal(object)
 
@@ -31,7 +32,11 @@ def get_bridge() -> UiBridge | None:
 
 
 def emit_agent_ui(event: dict) -> None:
-    """工具 / Agent 线程安全地往主线程推事件。"""
+    """工具 / Agent 线程安全地往主线程推事件。
+
+    主线程侧（DesktopPet / 未来 AgentController）收到后应再
+    ``event_bus.emit('agent:stream', ...)``，供面板与 Plugin 订阅。
+    """
     br = get_bridge()
     if br is not None:
         br.agent_ui_event.emit(event)

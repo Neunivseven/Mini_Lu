@@ -173,7 +173,7 @@ class MoveResizeController(QObject):
         if not isinstance(event, QMouseEvent):
             return False
 
-        # —— 已在拖动/缩放：事件可能落在 host（grabMouse）——
+        # 已在拖动/缩放：事件可能落在 host（grabMouse）
         if self._drag_off is not None or self._resizing:
             if obj is not host and obj not in self._drag_set and obj is not self._card:
                 # grabMouse 后仍以 host 为主
@@ -201,7 +201,7 @@ class MoveResizeController(QObject):
                 return True
             return False
 
-        # —— 右下角缩放（宿主或卡片）——
+        # 右下角缩放（宿主或卡片）
         if obj in (host, self._card) and et == QEvent.Type.MouseButtonPress:
             if event.button() == Qt.LeftButton:
                 local = self._map_to_host(obj, event)
@@ -216,7 +216,7 @@ class MoveResizeController(QObject):
                 host.unsetCursor()
             return False
 
-        # —— 顶栏拖动 ——
+        # 顶栏拖动
         if obj not in self._drag_set:
             return False
 

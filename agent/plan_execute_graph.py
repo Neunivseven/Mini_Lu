@@ -19,8 +19,6 @@ from agent.agent_config import AgentRuntimeConfig, load_agent_config
 from agent.llm_client import LLMConfig
 
 
-# ── State ──
-
 
 class PlanExecuteState(TypedDict, total=False):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -48,16 +46,22 @@ class ReplanDecision(BaseModel):
     )
 
 
-# ── Router heuristics ──
+# 路由启发式：默认 ReAct；仅明确多步/批量/先…再…才走 Plan。
 
 _PLAN_SIGNAL_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"(分步|一步步|制定计划|先.*再.*然后|多步|按步骤)"),
-    re.compile(r"(并|然后|接着|之后).{0,12}(改|修|写|编译|测试|运行|部署|提交)"),
-    re.compile(r"(扫描|搜索|查找).{0,20}(修改|编辑|改写|编译|构建)"),
+    # 显式要计划 / 分步
+    re.compile(r"(分步|一步步|制定计划|按步骤|分阶段|做个计划|列个计划)"),
+    # 清晰的先后链条（先…再…然后 / 先…再…再）
+    re.compile(r"先.{1,24}再.{1,24}(然后|再|接着|之后)"),
+    re.compile(r"(然后|接着|之后).{0,16}(再|并).{0,12}(改|修|写|编译|测试|运行|部署|提交)"),
+    # 搜/扫 后再改（跨步）
+    re.compile(r"(扫描|搜索|查找|遍历).{0,24}(并|然后|接着).{0,12}(修改|编辑|改写|替换|编译|构建)"),
+    # 构建系统联动
     re.compile(r"(CMake|cmake|Makefile|package\.json).{0,30}(改|编|build|编译)"),
-    re.compile(r"(工作区|项目).{0,20}(全部|所有|批量)"),
-    re.compile(r"(实现|开发|重构).{0,16}(功能|模块|接口)"),
-    re.compile(r"(并且|同时).{0,8}(打开|运行|执行|创建|删除)"),
+    # 批量范围
+    re.compile(r"(工作区|项目|仓库).{0,16}(全部|所有|批量|整库)"),
+    # 实现+多交付物
+    re.compile(r"(实现|开发|重构).{0,20}(功能|模块|接口).{0,20}(并|然后|以及).{0,12}(测试|文档|编译|部署)"),
 ]
 
 _SIMPLE_HINTS = re.compile(
@@ -65,27 +69,68 @@ _SIMPLE_HINTS = re.compile(
     re.I,
 )
 
+# 路由时去掉附件正文，避免长文档把所有请求推成 plan
+_ATTACH_MARKERS = (
+    "【附件文档】",
+    "--- 文档:",
+    "--- 文档：",
+    "请结合下方附件",
+)
+
+
+def routing_text(text: str, *, max_chars: int = 280) -> str:
+    """供路由器使用的短文本：剥附件、截断。"""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    cut = len(t)
+    for marker in _ATTACH_MARKERS:
+        i = t.find(marker)
+        if i >= 0:
+            cut = min(cut, i)
+    t = t[:cut].strip()
+    # 去掉「用户:」等前缀噪声
+    if len(t) > max_chars:
+        t = t[:max_chars].rstrip() + "…"
+    return t
+
 
 def count_plan_signals(text: str) -> int:
-    t = (text or "").strip()
+    t = routing_text(text, max_chars=2000)
     if not t:
         return 0
     n = 0
     for pat in _PLAN_SIGNAL_PATTERNS:
         if pat.search(t):
             n += 1
-    # 多个祈使/动作词
+    # 独立动作词 ≥4 才计为复杂信号（避免「打开并读取」误判）
     verbs = len(
         re.findall(
-            r"(打开|关闭|创建|删除|修改|编辑|编译|构建|运行|执行|搜索|查找|写入|读取|安装|配置)",
+            r"(打开|关闭|创建|删除|修改|编辑|编译|构建|运行|执行|搜索|查找|写入|读取|安装|配置|重构|部署|提交)",
             t,
         )
     )
-    if verbs >= 3:
+    if verbs >= 4:
         n += 1
-    if "；" in t or t.count("\n") >= 2:
+    # 多条指令（分号 / 多行）
+    if t.count("；") >= 2 or t.count("\n") >= 3:
         n += 1
     return n
+
+
+_STRONG_PLAN_HINTS = re.compile(
+    r"(分步|一步步|制定计划|按步骤|分阶段|做个计划|列个计划|plan-and-execute)",
+    re.I,
+)
+
+# 跟进写入 / 禁止再审查：强制 ReAct
+_FOLLOWUP_REACT = re.compile(
+    r"(不要再|别再|勿再|禁止再|不要再次).{0,16}(审查|扫描|分析|检查|review)|"
+    r"(把|将).{0,24}(之前|上次|刚才|历史|前面|以上).{0,24}"
+    r"(结果|内容|记录|输出|审查|结论).{0,40}(写入|写到|存|保存|存成|落到)|"
+    r"(写入|写到|存成|保存到|存到).{0,40}\.(md|txt|markdown|json)",
+    re.I,
+)
 
 
 def heuristic_route(
@@ -93,20 +138,28 @@ def heuristic_route(
     *,
     cfg: AgentRuntimeConfig | None = None,
 ) -> Literal["react", "plan", "ambiguous"]:
-    """规则路由：react / plan / ambiguous。"""
+    """规则路由：默认 react；明确复杂才 plan；仅边界情况 ambiguous。"""
     acfg = cfg or load_agent_config()
-    t = (text or "").strip()
+    t = routing_text(text)
     if not t:
         return "react"
     if _SIMPLE_HINTS.match(t) or len(t) < 8:
         return "react"
+    # 保存历史结果 / 禁止再审查 → ReAct（依赖对话上下文写文件）
+    if _FOLLOWUP_REACT.search(t):
+        return "react"
+    # 用户明确要求分步/计划 → 直接 plan
+    if _STRONG_PLAN_HINTS.search(t):
+        return "plan"
     signals = count_plan_signals(t)
+    # 无复杂信号 → 一律 ReAct（长文本/附件也不例外）
+    if signals == 0:
+        return "react"
     if signals >= acfg.router.min_plan_signals:
         return "plan"
-    if len(t) >= acfg.router.long_text_chars and signals >= 1:
+    # 仅 1 个信号：长文更倾向 plan，短文交给 LLM/默认 react
+    if len(t) >= acfg.router.long_text_chars:
         return "plan"
-    if signals == 0 and len(t) < acfg.router.long_text_chars:
-        return "react"
     return "ambiguous"
 
 
@@ -165,6 +218,60 @@ def _final_ai_text(messages: Sequence[Any]) -> str:
     return ""
 
 
+def _format_dialog_context(
+    messages: Sequence[Any] | None,
+    *,
+    max_msgs: int = 10,
+    max_chars: int = 10000,
+    per_msg: int = 3500,
+) -> str:
+    """给 planner/executor 的近期对话（含助手长文，便于「写入之前结果」）。"""
+    rows: list[tuple[str, str]] = []
+    for msg in list(messages or []):
+        role = getattr(msg, "type", None) or getattr(msg, "role", None)
+        if isinstance(msg, dict):
+            role = msg.get("role") or msg.get("type")
+        if role in ("human", "user"):
+            tag = "用户"
+        elif role in ("ai", "assistant") or (
+            not isinstance(msg, dict)
+            and msg.__class__.__name__ in ("AIMessage", "AIMessageChunk")
+        ):
+            tag = "助手"
+        else:
+            continue
+        text = _message_text(msg)
+        if not text:
+            continue
+        # 跳过纯「计划：」元消息的过短噪音可保留；截断长文
+        if len(text) > per_msg:
+            text = text[: per_msg - 1] + "…"
+        rows.append((tag, text))
+    if not rows:
+        # 冷启动：从 UI transcript 补历史
+        try:
+            from agent.chat_history import recent_for_llm
+
+            for m in recent_for_llm(limit=max_msgs, exclude_trailing_user=True, max_chars_per_msg=per_msg):
+                tag = "用户" if m.get("role") == "user" else "助手"
+                rows.append((tag, str(m.get("content") or "")))
+        except Exception:
+            pass
+    rows = rows[-max_msgs:]
+    parts: list[str] = []
+    total = 0
+    for tag, text in rows:
+        chunk = f"【{tag}】\n{text}"
+        if total + len(chunk) > max_chars:
+            remain = max_chars - total
+            if remain > 80:
+                parts.append(chunk[: remain - 1] + "…")
+            break
+        parts.append(chunk)
+        total += len(chunk) + 2
+    return "\n\n".join(parts).strip()
+
+
 def _thread_id(config: Optional[RunnableConfig]) -> str:
     if not config:
         return "default"
@@ -180,9 +287,6 @@ def _thread_id(config: Optional[RunnableConfig]) -> str:
 def _clip_steps(steps: list[str], max_n: int) -> list[str]:
     out = [s.strip() for s in steps if (s or "").strip()]
     return out[: max(1, max_n)]
-
-
-# ── Graph factory ──
 
 
 def build_plan_execute_graph(
@@ -215,34 +319,37 @@ def build_plan_execute_graph(
 
     def router_node(state: PlanExecuteState, config: Optional[RunnableConfig] = None):
         mode = acfg.mode
-        text = state.get("input") or _last_user_text(state.get("messages") or [])
+        raw = state.get("input") or _last_user_text(state.get("messages") or [])
+        text = routing_text(raw)
+        # 新用户回合：清上一轮 plan / past_steps
+        clear = {"plan": [], "past_steps": [], "response": ""}
         if mode == "react":
-            return {"route": "react", "input": text}
+            return {"route": "react", "input": text or raw, **clear}
         if mode == "plan_execute":
-            return {"route": "plan", "input": text}
+            return {"route": "plan", "input": text or raw, **clear}
 
-        decision = heuristic_route(text, cfg=acfg)
+        decision = heuristic_route(text or raw, cfg=acfg)
         if decision == "ambiguous" and acfg.router.use_llm_when_ambiguous:
             try:
                 resp = planner_llm.invoke(
                     [
                         SystemMessage(
                             content=(
-                                "判断用户请求应走简单对话(react)还是多步计划执行(plan)。"
-                                "仅回复单词 react 或 plan。"
-                                "闲聊、单点查询、单次工具 → react；"
-                                "需多步骤、改代码+编译、调研后修改 → plan。"
+                                "判断用户请求走 react 还是 plan。只回复一个单词：react 或 plan。\n"
+                                "默认选 react（单次工具、查询、记事、闹钟、读文件、小改动、闲聊、"
+                                "把之前结果写入文件、不要再审查）。\n"
+                                "仅当明确需要 ≥3 个先后步骤、批量改多文件、或「先调研再改再测/编译」时选 plan。\n"
+                                "不确定时选 react。"
                             )
                         ),
-                        HumanMessage(content=text[:2000]),
+                        HumanMessage(content=(text or raw)[:800]),
                     ]
                 )
                 ans = _message_text(resp).lower().strip()
-                if ans in ("plan", "react"):
-                    decision = ans  # type: ignore[assignment]
-                elif "plan" in ans and "react" not in ans:
-                    decision = "plan"
-                elif ans.startswith("plan") or " plan" in f" {ans}":
+                # 严格匹配；含糊则 react
+                token = ans.split()[0] if ans else ""
+                token = token.strip(".,;:!\"'`。，；：")
+                if token == "plan":
                     decision = "plan"
                 else:
                     decision = "react"
@@ -250,7 +357,7 @@ def build_plan_execute_graph(
                 decision = "react"
         if decision == "ambiguous":
             decision = "react"
-        return {"route": decision, "input": text}
+        return {"route": decision, "input": text or raw, **clear}
 
     def route_after_router(state: PlanExecuteState) -> str:
         return "planner" if state.get("route") == "plan" else "react"
@@ -272,14 +379,24 @@ def build_plan_execute_graph(
     def planner_node(state: PlanExecuteState, config: Optional[RunnableConfig] = None):
         goal = state.get("input") or _last_user_text(state.get("messages") or [])
         max_n = acfg.planner.max_plan_steps
+        dialog = _format_dialog_context(state.get("messages"), max_msgs=10, max_chars=9000)
         sys = SystemMessage(
             content=(
                 "你是任务规划器。把用户目标拆成有序、可执行的短步骤。"
                 f"最多 {max_n} 步；每步只做一件事；用中文；不要写编号。"
-                "不要执行工具，只输出计划。"
+                "不要执行工具，只输出计划。\n"
+                "重要约束：\n"
+                "- 必须遵守用户的禁止项（如「不要再审查/扫描」）。\n"
+                "- 若用户要保存/写入「之前/上次」的结果，步骤应是："
+                "从下方近期对话提取助手已有输出 → 用 write_file/edit_file 写入指定文档；"
+                "禁止重新发起审查、扫描或 list_directory 全库遍历。\n"
+                "- 不要把简单「写文件」扩成多步调研计划。"
             )
         )
-        human = HumanMessage(content=f"用户目标：\n{goal}")
+        body = f"用户目标：\n{goal}"
+        if dialog:
+            body += f"\n\n【近期对话（可引用，勿重复已完成工作）】\n{dialog}"
+        human = HumanMessage(content=body)
         steps: list[str] = []
         if structured_planner is not None:
             try:
@@ -297,7 +414,7 @@ def build_plan_execute_graph(
                         sys,
                         HumanMessage(
                             content=(
-                                f"用户目标：\n{goal}\n\n"
+                                f"{body}\n\n"
                                 "请输出计划，每行一步，不要编号与其它说明。"
                             )
                         ),
@@ -335,15 +452,22 @@ def build_plan_execute_graph(
         past = list(state.get("past_steps") or [])
         sid = _thread_id(config)
         step_idx = len(past)
+        dialog = _format_dialog_context(
+            state.get("messages"), max_msgs=8, max_chars=12000, per_msg=5000
+        )
         task = (
             f"请只完成下面这一步计划，完成后用中文简要汇报结果与关键发现。"
-            f"不要擅自执行后续步骤。\n\n"
+            f"不要擅自执行后续步骤。\n"
+            f"若步骤是写入文档：优先使用近期对话里助手已给出的正文，"
+            f"调用 write_file 或 edit_file；不要重新审查/扫描整个项目。\n\n"
             f"【当前步骤】{step}\n\n"
             f"【用户原始目标】{goal}\n"
         )
         if past:
             done = "\n".join(f"- {a}: {b[:300]}" for a, b in past[-4:])
             task += f"\n【已完成步骤摘要】\n{done}\n"
+        if dialog:
+            task += f"\n【近期对话（含历史审查/分析结果，可直接引用）】\n{dialog}\n"
 
         invoke_cfg: dict[str, Any] = {
             "configurable": {
@@ -358,11 +482,12 @@ def build_plan_execute_graph(
         )
         result = _final_ai_text(out.get("messages") or []) or "（本步无文本结果）"
         new_past = past + [(step, result)]
+        # 保留较完整步骤结果，便于后续「写入文档」跟进时引用
         return {
             "past_steps": new_past,
             "plan": plan[1:],
             "messages": [
-                AIMessage(content=f"步骤完成：{step}\n结果：{result[:1200]}")
+                AIMessage(content=f"步骤完成：{step}\n结果：{result[:8000]}")
             ],
         }
 

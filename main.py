@@ -5,7 +5,7 @@
 """
 import sys
 import random
-
+from enum import Enum
 from pathlib import Path
 from PySide6.QtWidgets import (QApplication, QWidget, QMenu,
                                QSystemTrayIcon)
@@ -14,22 +14,19 @@ from PySide6.QtGui import (QPixmap, QImage, QMouseEvent, QAction, QIcon,
 from PySide6.QtCore import Qt, QTimer, QPoint, QRect, Signal, QObject, QEvent
 
 from agent.agent_runner import AgentRunner
-from agent import chat_history
-from agent.chat_bubble import BubbleLane, display_ms_for_text
-from agent.chat_history_panel import ChatHistoryPanel
-from agent.chat_panel import ChatPanel
+from agent.chat_bubble import BubbleLane
+from agent.desktop import AgentController, PanelManager
+from agent.desktop.constants import (
+    ALPHA_THRESHOLD,
+    DISPLAY_PERSON_HEIGHT,
+    WINDOW_HEIGHT,
+    WINDOW_WIDTH,
+)
+from agent.event_bus import UI_READY, get_event_bus
 from agent.hover_tip import HoverTip
-from agent.memory_panel import MemoryPanel
-from agent.notes_panel import NotesPanel
-from agent.prompt_panel import PromptPanel
-from agent.quotes_panel import QuotesPanel
-from agent.models_panel import ModelsPanel
-from agent.extensions_panel import ExtensionsPanel
+from agent.plugin import get_plugin_manager
 from agent.ui_bridge import init_bridge
-from agent.workspace_panel import WorkspacePanel
-from agent.agent_studio import AgentStudio
 from agent import quotes_store
-from agent.file_workspace import get_active_root
 from agent.edit_staging import set_review_enabled
 
 
@@ -74,21 +71,30 @@ def app_dir() -> Path:
 ASSETS_DIR = app_dir() / "assets"
 SKINS_DIR = ASSETS_DIR / "skins"
 
-# 窗口尺寸
-WINDOW_WIDTH = 200
-WINDOW_HEIGHT = 260
 
-# 显示时人物目标高度（窗口内），保证各帧视觉大小一致
-DISPLAY_PERSON_HEIGHT = 230
-ALPHA_THRESHOLD = 10
 
-# 各动作的帧间隔（毫秒），数值越小越快
-FRAME_INTERVAL = {
-    "idle": 300,       # 待机：慢，呼吸眨眼
-    "walk_left": 120,  # 行走
-    "walk_right": 120,
-    "happy": 150,      # 开心：中等
+class PetAnim(str, Enum):
+    """宠物动画状态；新增动作须同时写入 FRAME_INTERVAL。"""
+
+    IDLE = "idle"
+    WALK_LEFT = "walk_left"
+    WALK_RIGHT = "walk_right"
+    HAPPY = "happy"
+
+
+# 各动作帧间隔（毫秒）；须覆盖全部 PetAnim，缺项在导入时即失败
+FRAME_INTERVAL: dict[PetAnim, int] = {
+    PetAnim.IDLE: 300,
+    PetAnim.WALK_LEFT: 120,
+    PetAnim.WALK_RIGHT: 120,
+    PetAnim.HAPPY: 150,
 }
+if set(FRAME_INTERVAL) != set(PetAnim):
+    missing = set(PetAnim) - set(FRAME_INTERVAL)
+    extra = set(FRAME_INTERVAL) - set(PetAnim)
+    raise RuntimeError(
+        f"FRAME_INTERVAL 与 PetAnim 不一致: missing={missing} extra={extra}"
+    )
 
 
 class ClickCaptureOverlay(QWidget):
@@ -149,6 +155,9 @@ class DesktopPet(QWidget):
         # 家位置（小范围活动的中心点）
         self.home_x = None
         self.walk_range = 80  # 在家位置左右各80px范围内活动
+
+        # 帧规范化缓存：(path, mtime_ns, size, 显示参数) → QPixmap
+        self._frame_norm_cache: dict[tuple, QPixmap] = {}
         
         self.init_window()
         self.init_animations()
@@ -163,7 +172,7 @@ class DesktopPet(QWidget):
         # 动画定时器，初始为待机速度
         self.anim_timer = QTimer(self)
         self.anim_timer.timeout.connect(self.next_frame)
-        self.anim_timer.start(FRAME_INTERVAL["idle"])
+        self.anim_timer.start(FRAME_INTERVAL[PetAnim.IDLE])
         
         # 行为定时器（自动踱步决策，间隔加长以降低打扰）
         self.behavior_timer = QTimer(self)
@@ -187,63 +196,7 @@ class DesktopPet(QWidget):
         # 点选移动：仅右键菜单「点选横向移动…」触发，避免单击误触
         self.goto_overlay: ClickCaptureOverlay | None = None
 
-        # Agent 聊天 + 记事面板 + 冒泡
-        self.chat_panel = ChatPanel()
-        self.chat_panel.send_requested.connect(self.on_chat_send)
-        self.chat_panel.closed.connect(self.on_chat_closed)
-        self.chat_panel.moved_by_user.connect(self._sync_bubble_avoid)
-        self.chat_panel.workspace_requested.connect(self.open_workspace_panel)
-        self.chat_panel.new_agent_requested.connect(self.create_new_agent)
-        self.chat_panel.agents_requested.connect(self.open_history_panel)
-        self.chat_panel.expand_requested.connect(self.open_agent_studio)
-        self.chat_panel.stop_requested.connect(self.on_agent_stop)
-        self.chat_panel.rewind_cancel_requested.connect(self.cancel_rewind_edit)
-        self.notes_panel = NotesPanel()
-        self.notes_panel.closed.connect(self.on_notes_closed)
-        self.memory_panel = MemoryPanel()
-        self.memory_panel.closed.connect(self.on_memory_closed)
-        self.workspace_panel = WorkspacePanel()
-        self.workspace_panel.closed.connect(self.on_workspace_closed)
-        self.workspace_panel.changed.connect(self._on_workspace_changed)
-        self.quotes_panel = QuotesPanel()
-        self.quotes_panel.closed.connect(self.on_quotes_closed)
-        self.quotes_panel.settings_changed.connect(self._restart_quote_timer)
-        self.prompt_panel = PromptPanel()
-        self.prompt_panel.closed.connect(self.on_prompt_closed)
-        self.prompt_panel.prompt_changed.connect(self.on_prompt_changed)
-        self.models_panel = ModelsPanel()
-        self.models_panel.closed.connect(self.on_models_closed)
-        self.models_panel.models_changed.connect(self.on_models_changed)
-        self.extensions_panel = ExtensionsPanel()
-        self.extensions_panel.closed.connect(self.on_extensions_closed)
-        self.extensions_panel.extensions_changed.connect(self.on_extensions_changed)
-        self.history_panel = ChatHistoryPanel()
-        self.history_panel.closed.connect(self.on_history_closed)
-        self.history_panel.session_changed.connect(self.on_session_changed)
-        self.agent_studio = AgentStudio()
-        self.agent_studio.closed.connect(self.on_studio_closed)
-        self.agent_studio.collapse_requested.connect(self.on_studio_collapse)
-        self.agent_studio.send_requested.connect(self.on_studio_send)
-        self.agent_studio.new_agent_requested.connect(self.create_new_agent)
-        self.agent_studio.session_changed.connect(self.on_session_changed)
-        self.agent_studio.workspace_requested.connect(self.open_workspace_panel)
-        self.agent_studio.workspace_changed.connect(self._on_workspace_changed)
-        self.agent_studio.extensions_requested.connect(self.open_extensions_panel)
-        self.agent_studio.models_changed.connect(self.on_models_changed)
-        self.agent_studio.rewind_requested.connect(self.on_rewind_from_message)
-        self.agent_studio.retry_requested.connect(self.on_retry_from_message)
-        self.agent_studio.stop_requested.connect(self.on_agent_stop)
-        self.agent_studio.rewind_cancel_requested.connect(self.cancel_rewind_edit)
-        self.bubble_lane = BubbleLane()
-        self.bubble_lane.on_open_full = self.on_bubble_open_full
-        self.hover_tip = HoverTip()
-        self.setMouseTracking(True)
-        self.agent_runner = AgentRunner(self)
-        self.agent_runner.reply_ready.connect(self.on_agent_reply)
-        self.agent_runner.error.connect(self.on_agent_error)
-        self.agent_runner.cancelled.connect(self.on_agent_cancelled)
-        self.agent_runner.busy_changed.connect(self.on_agent_busy)
-        self.agent_runner.stream_event.connect(self.on_agent_stream_event)
+        # 面板 / Agent 控制器（标志位仍在 host）
         self._chat_open = False
         self._notes_open = False
         self._memory_open = False
@@ -256,17 +209,89 @@ class DesktopPet(QWidget):
         self._history_open = False
         self._rewind_anchor_id: str | None = None
 
+        self.panels = PanelManager(self)
+        self.chat_panel = self.panels.chat_panel
+        self.notes_panel = self.panels.notes_panel
+        self.memory_panel = self.panels.memory_panel
+        self.workspace_panel = self.panels.workspace_panel
+        self.quotes_panel = self.panels.quotes_panel
+        self.prompt_panel = self.panels.prompt_panel
+        self.models_panel = self.panels.models_panel
+        self.extensions_panel = self.panels.extensions_panel
+        self.history_panel = self.panels.history_panel
+        self.agent_studio = self.panels.agent_studio
+
+        self.bubble_lane = BubbleLane()
+        self.hover_tip = HoverTip()
+        self.setMouseTracking(True)
+        self.agent_runner = AgentRunner(self)
+        self.agent_ctrl = AgentController(self)
+        self.bubble_lane.on_open_full = self.agent_ctrl.on_bubble_open_full
+
+        self.chat_panel.send_requested.connect(self.agent_ctrl.on_chat_send)
+        self.chat_panel.closed.connect(self.panels.on_chat_closed)
+        self.chat_panel.moved_by_user.connect(self.panels._sync_bubble_avoid)
+        self.chat_panel.workspace_requested.connect(self.panels.open_workspace_panel)
+        self.chat_panel.new_agent_requested.connect(self.panels.create_new_agent)
+        self.chat_panel.agents_requested.connect(self.panels.open_history_panel)
+        self.chat_panel.expand_requested.connect(self.panels.open_agent_studio)
+        self.chat_panel.stop_requested.connect(self.agent_ctrl.on_agent_stop)
+        self.chat_panel.rewind_cancel_requested.connect(self.agent_ctrl.cancel_rewind_edit)
+        self.notes_panel.closed.connect(self.panels.on_notes_closed)
+        self.memory_panel.closed.connect(self.panels.on_memory_closed)
+        self.workspace_panel.closed.connect(self.panels.on_workspace_closed)
+        self.workspace_panel.changed.connect(self.panels._on_workspace_changed)
+        self.quotes_panel.closed.connect(self.panels.on_quotes_closed)
+        self.quotes_panel.settings_changed.connect(self._restart_quote_timer)
+        self.prompt_panel.closed.connect(self.panels.on_prompt_closed)
+        self.prompt_panel.prompt_changed.connect(self.panels.on_prompt_changed)
+        self.models_panel.closed.connect(self.panels.on_models_closed)
+        self.models_panel.models_changed.connect(self.panels.on_models_changed)
+        self.extensions_panel.closed.connect(self.panels.on_extensions_closed)
+        self.extensions_panel.extensions_changed.connect(self.panels.on_extensions_changed)
+        self.history_panel.closed.connect(self.panels.on_history_closed)
+        self.history_panel.session_changed.connect(self.panels.on_session_changed)
+        self.agent_studio.closed.connect(self.panels.on_studio_closed)
+        self.agent_studio.collapse_requested.connect(self.panels.on_studio_collapse)
+        self.agent_studio.send_requested.connect(self.panels.on_studio_send)
+        self.agent_studio.new_agent_requested.connect(self.panels.create_new_agent)
+        self.agent_studio.session_changed.connect(self.panels.on_session_changed)
+        self.agent_studio.workspace_requested.connect(self.panels.open_workspace_panel)
+        self.agent_studio.workspace_changed.connect(self.panels._on_workspace_changed)
+        self.agent_studio.extensions_requested.connect(self.panels.open_extensions_panel)
+        self.agent_studio.models_changed.connect(self.panels.on_models_changed)
+        self.agent_studio.rewind_requested.connect(self.agent_ctrl.on_rewind_from_message)
+        self.agent_studio.retry_requested.connect(self.agent_ctrl.on_retry_from_message)
+        self.agent_studio.stop_requested.connect(self.agent_ctrl.on_agent_stop)
+        self.agent_studio.rewind_cancel_requested.connect(self.agent_ctrl.cancel_rewind_edit)
+
+        self.agent_runner.reply_ready.connect(self.agent_ctrl.on_agent_reply)
+        self.agent_runner.error.connect(self.agent_ctrl.on_agent_error)
+        self.agent_runner.cancelled.connect(self.agent_ctrl.on_agent_cancelled)
+        self.agent_runner.busy_changed.connect(self.agent_ctrl.on_agent_busy)
+        self.agent_runner.stream_event.connect(self.agent_ctrl.on_agent_stream_event)
+
         self.ui_bridge = init_bridge(self)
-        self.ui_bridge.open_notes.connect(self.open_notes_panel)
-        self.ui_bridge.open_memory.connect(self.open_memory_panel)
-        self.ui_bridge.open_workspace.connect(self.open_workspace_panel)
-        self.ui_bridge.open_agent_studio.connect(self.open_agent_studio)
-        self.ui_bridge.open_prompt.connect(self.open_prompt_panel)
-        self.ui_bridge.edits_changed.connect(self.on_edits_changed)
+        self.ui_bridge.open_notes.connect(self.panels.open_notes_panel)
+        self.ui_bridge.open_memory.connect(self.panels.open_memory_panel)
+        self.ui_bridge.open_workspace.connect(self.panels.open_workspace_panel)
+        self.ui_bridge.open_agent_studio.connect(self.panels.open_agent_studio)
+        self.ui_bridge.open_prompt.connect(self.panels.open_prompt_panel)
+        self.ui_bridge.edits_changed.connect(self.panels.on_edits_changed)
         self.ui_bridge.show_bubble.connect(self.show_reminder_bubble)
-        self.ui_bridge.agent_ui_event.connect(self.on_agent_ui_event)
-        self._refresh_workspace_tooltip()
+        self.ui_bridge.reminders_changed.connect(self.schedule_reminder_timer)
+        self.ui_bridge.agent_ui_event.connect(self.agent_ctrl.on_agent_ui_event)
+        self.panels._refresh_workspace_tooltip()
         set_review_enabled(True)
+
+        # Plugin + EventBus：UI 就绪
+        try:
+            pm = get_plugin_manager()
+            pm.load_skill_plugins()
+            pm.notify_ui_ready(self.panels)
+            get_event_bus().emit(UI_READY, self.panels)
+        except Exception:
+            pass
 
         # 单击延迟：避免双击打开聊天时误触发单击互动
         self._single_click_timer = QTimer(self)
@@ -278,15 +303,27 @@ class DesktopPet(QWidget):
         self.happy_timer.setSingleShot(True)
         self.happy_timer.timeout.connect(self.back_to_idle)
 
-        # 提醒轮询（到期 UI 冒泡）
+        # 提醒：按下次到期动态调度（非每秒空转）
+        try:
+            from agent.reminders import migrate_legacy_reminders
+
+            migrate_legacy_reminders()
+        except Exception:
+            pass
         self.reminder_timer = QTimer(self)
+        self.reminder_timer.setSingleShot(True)
         self.reminder_timer.timeout.connect(self.check_reminders)
-        self.reminder_timer.start(1000)
+        self.schedule_reminder_timer()
 
         # 待机语录
         self.quote_timer = QTimer(self)
         self.quote_timer.timeout.connect(self.maybe_say_quote)
         self._restart_quote_timer()
+
+
+    def pet_geo(self) -> tuple[int, int, int, int]:
+        """面板定位用：(x, y, w, h)。"""
+        return self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
 
     def discover_skins(self) -> list[str]:
         """发现可用皮肤：仅维护 Q版卡通"""
@@ -294,7 +331,6 @@ class DesktopPet(QWidget):
         if not SKINS_DIR.exists():
             return ["default"]
         skins = [d.name for d in SKINS_DIR.iterdir() if d.is_dir()]
-        # 只启用 Q版；真人风格不再维护
         if preferred in skins:
             return [preferred]
         q_like = [s for s in skins if "Q" in s or "q" in s]
@@ -329,7 +365,7 @@ class DesktopPet(QWidget):
         if frames and self.current_frame < len(frames):
             pix = frames[self.current_frame]
             if not pix.isNull():
-                # normalize_frame 已输出窗口画布；旧素材则底部居中兜底
+                # 非窗口画布尺寸时底部居中兜底
                 if pix.width() == WINDOW_WIDTH and pix.height() == WINDOW_HEIGHT:
                     painter.drawPixmap(0, 0, pix)
                 else:
@@ -359,52 +395,97 @@ class DesktopPet(QWidget):
 
     @staticmethod
     def content_bbox(image: QImage) -> QRect | None:
-        """根据 alpha 通道计算人物内容包围盒（缩略扫描，启动更快）"""
+        """根据 alpha 通道计算人物内容包围盒（缩略 + 字节扫描）。"""
         if image.isNull():
             return None
         img = image.convertToFormat(QImage.Format_ARGB32)
-        factor = max(1, min(img.width(), img.height()) // 320)
+        factor = max(1, min(img.width(), img.height()) // 400)
         small = img.scaled(
             max(1, img.width() // factor),
             max(1, img.height() // factor),
             Qt.IgnoreAspectRatio,
             Qt.FastTransformation,
         )
-        min_x, min_y = small.width(), small.height()
+        w, h = small.width(), small.height()
+        min_x, min_y = w, h
         max_x, max_y = -1, -1
-        for y in range(small.height()):
-            for x in range(small.width()):
-                if (small.pixel(x, y) >> 24) & 0xFF > ALPHA_THRESHOLD:
-                    if x < min_x:
-                        min_x = x
-                    if x > max_x:
-                        max_x = x
-                    if y < min_y:
-                        min_y = y
-                    if y > max_y:
-                        max_y = y
+        # 按行扫 ARGB32 字节，避免逐像素 QImage.pixel() 开销
+        bpl = small.bytesPerLine()
+        bits = small.constBits()
+        if bits is not None:
+            mv = memoryview(bits).cast("B")
+            thr = ALPHA_THRESHOLD
+            for y in range(h):
+                row = y * bpl
+                for x in range(w):
+                    # Format_ARGB32：小端常见为 B,G,R,A
+                    a = mv[row + x * 4 + 3]
+                    if a > thr:
+                        if x < min_x:
+                            min_x = x
+                        if x > max_x:
+                            max_x = x
+                        if y < min_y:
+                            min_y = y
+                        if y > max_y:
+                            max_y = y
+        else:
+            for y in range(h):
+                for x in range(w):
+                    if (small.pixel(x, y) >> 24) & 0xFF > ALPHA_THRESHOLD:
+                        if x < min_x:
+                            min_x = x
+                        if x > max_x:
+                            max_x = x
+                        if y < min_y:
+                            min_y = y
+                        if y > max_y:
+                            max_y = y
         if max_x < min_x or max_y < min_y:
             return None
-        # 映射回原图像素，并向外扩一点以免裁切到边缘
-        pad = factor
+        pad = max(4, factor * 2)
         left = max(0, min_x * factor - pad)
         top = max(0, min_y * factor - pad)
         right = min(img.width(), (max_x + 1) * factor + pad)
         bottom = min(img.height(), (max_y + 1) * factor + pad)
         return QRect(left, top, right - left, bottom - top)
 
-    def normalize_frame(self, pix: QPixmap) -> QPixmap:
-        """按人物内容高度统一缩放，底部对齐到固定画布，避免忽大忽小"""
+    def normalize_frame(
+        self, pix: QPixmap, *, source_path: Path | None = None
+    ) -> QPixmap:
+        """按人物内容高度统一缩放；同源路径按 mtime 缓存，换肤/重启少重算。"""
         if pix.isNull():
             return pix
+
+        cache_key: tuple | None = None
+        if source_path is not None:
+            try:
+                st = source_path.stat()
+                cache_key = (
+                    str(source_path.resolve()),
+                    st.st_mtime_ns,
+                    st.st_size,
+                    DISPLAY_PERSON_HEIGHT,
+                    WINDOW_WIDTH,
+                    WINDOW_HEIGHT,
+                    ALPHA_THRESHOLD,
+                )
+                hit = self._frame_norm_cache.get(cache_key)
+                if hit is not None and not hit.isNull():
+                    return hit
+            except OSError:
+                cache_key = None
 
         image = pix.toImage()
         bbox = self.content_bbox(image)
         if bbox is None or bbox.height() <= 0:
-            return pix.scaled(
+            out = pix.scaled(
                 WINDOW_WIDTH, WINDOW_HEIGHT,
                 Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
+            if cache_key is not None:
+                self._frame_norm_cache[cache_key] = out
+            return out
 
         person = QPixmap.fromImage(image.copy(bbox))
         scale = DISPLAY_PERSON_HEIGHT / bbox.height()
@@ -427,6 +508,12 @@ class DesktopPet(QWidget):
         y = WINDOW_HEIGHT - new_h - 5
         painter.drawPixmap(x, y, person)
         painter.end()
+        if cache_key is not None:
+            self._frame_norm_cache[cache_key] = canvas
+            # 防止无限增长：只保留最近约 200 帧
+            if len(self._frame_norm_cache) > 220:
+                for old in list(self._frame_norm_cache.keys())[:40]:
+                    self._frame_norm_cache.pop(old, None)
         return canvas
 
     def load_frames(self, action_name: str) -> list[QPixmap]:
@@ -442,7 +529,7 @@ class DesktopPet(QWidget):
             for f in png_files:
                 pix = QPixmap(str(f))
                 if not pix.isNull():
-                    frames.append(self.normalize_frame(pix))
+                    frames.append(self.normalize_frame(pix, source_path=f))
 
         if not frames:
             frames.append(QPixmap())
@@ -459,7 +546,7 @@ class DesktopPet(QWidget):
 
     def init_behavior(self):
         """初始化行为参数"""
-        # 无人操作时很少自己踱步（原 0.5；现约每 5 秒 8%）
+        # 无人操作时降低自动踱步频率
         self.walk_chance = 0.08
         self.happy_duration = 1200  # 开心状态持续1.2秒
         self.goto_pick_armed = False
@@ -659,13 +746,31 @@ class DesktopPet(QWidget):
             self.current_frame = (self.current_frame + 1) % len(frames)
             self.update_image()
 
-    def change_state(self, new_state: str):
-        """切换动作状态，并调整动画帧率"""
-        if self.current_state != new_state:
-            self.current_state = new_state
+    def change_state(self, new_state: str | PetAnim):
+        """切换动作状态，并调整动画帧率（间隔取自 FRAME_INTERVAL[PetAnim]）。"""
+        if isinstance(new_state, PetAnim):
+            anim = new_state
+            key = anim.value
+        else:
+            key = str(new_state or "").strip()
+            try:
+                anim = PetAnim(key)
+            except ValueError:
+                # 未登记状态：保留字符串以尝试播帧，帧率回退到 idle 并打日志
+                print(
+                    f"[pet] 未知动画状态 {key!r}，未在 PetAnim/FRAME_INTERVAL 中定义，"
+                    f"使用 {PetAnim.IDLE.value} 帧间隔"
+                )
+                if self.current_state != key:
+                    self.current_state = key
+                    self.current_frame = 0
+                    self.anim_timer.setInterval(FRAME_INTERVAL[PetAnim.IDLE])
+                    self.update_image()
+                return
+        if self.current_state != key:
+            self.current_state = key
             self.current_frame = 0
-            interval = FRAME_INTERVAL.get(new_state, 200)
-            self.anim_timer.setInterval(interval)
+            self.anim_timer.setInterval(FRAME_INTERVAL[anim])
             self.update_image()
 
     def back_to_idle(self):
@@ -732,7 +837,7 @@ class DesktopPet(QWidget):
         else:
             self.move(current_x - self.walk_speed, y)
 
-    # ===== 鼠标事件 =====
+    # 鼠标事件
     def enterEvent(self, event):
         super().enterEvent(event)
         if not self.is_dragging and not self.goto_pick_armed:
@@ -844,588 +949,47 @@ class DesktopPet(QWidget):
         self.happy_timer.start(self.happy_duration)
 
     def open_chat(self):
-        """打开输入条；若大窗口已开则聚焦工作台（不叠小条）。"""
-        self.cancel_goto_pick()
-        if self._studio_open and self.agent_studio.isVisible():
-            self.agent_studio.raise_()
-            self.agent_studio.activateWindow()
-            try:
-                self.agent_studio.input.setFocus()
-            except Exception:
-                pass
-            return
-        self._chat_open = True
-        self.chat_panel.refresh_session_hint()
-        self.bubble_lane.set_pet_geo(
-            self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-        )
-        self.chat_panel.show_near(
-            self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-        )
-        self._sync_bubble_avoid()
-
+        return self.panels.open_chat()
     def _reposition_chat(self):
-        if self.chat_panel.is_pinned():
-            return
-        self.chat_panel.place_near(
-            self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-        )
-        self._sync_bubble_avoid()
-
+        return self.panels._reposition_chat()
     def _sync_bubble_avoid(self):
-        """气泡排布时避开聊天输入框。"""
-        from PySide6.QtCore import QRect
-
-        if self._chat_open and self.chat_panel.isVisible():
-            g = self.chat_panel.frameGeometry()
-            self.bubble_lane.set_avoid_rect(
-                QRect(g.x(), g.y(), g.width(), g.height())
-            )
-        else:
-            self.bubble_lane.set_avoid_rect(None)
-
+        return self.panels._sync_bubble_avoid()
     def on_chat_closed(self):
-        self._chat_open = False
-        self.bubble_lane.set_avoid_rect(None)
-
+        return self.panels.on_chat_closed()
+    @staticmethod
+    def _is_panel_open_command(text: str, keywords: tuple[str, ...], *, max_len: int = 28) -> bool:
+        return AgentController._is_panel_open_command(text=text, keywords=keywords, max_len=max_len)
     def on_chat_send(self, text: str, attachments: list | None = None):
-        """用户发送：文档走正文提取；按 Chat 能力原生传图或 vision→文本降级。"""
-        from pathlib import Path
-
-        from agent.providers.media_gateway import resolve_turn
-
-        # 「从此重开」：只有发送时才截断重跑；未发送则原对话不变
-        rewind_id = self._rewind_anchor_id
-        if rewind_id:
-            self._commit_rewind_send(text, attachments, rewind_id)
-            return
-
-        attachments = list(attachments or [])
-        # 兼容旧签名：若传入的是纯路径字符串列表
-        if attachments and isinstance(attachments[0], str):
-            attachments = [
-                {"kind": "doc", "path": p, "name": Path(p).name, "analysis": ""}
-                for p in attachments
-            ]
-
-        docs = [a["path"] for a in attachments if a.get("kind") == "doc" and a.get("path")]
-        media = [
-            a
-            for a in attachments
-            if a.get("kind") in ("audio", "image")
-        ]
-
-        self.walk_target = None
-        self.user_goto = False
-        self.bubble_lane.set_pet_geo(
-            self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-        )
-        bubble_bits = []
-        if text.strip():
-            bubble_bits.append(text.strip())
-        labels = []
-        for a in attachments:
-            name = a.get("name") or Path(str(a.get("path") or "")).name
-            kind = a.get("kind")
-            prefix = {"image": "🖼", "audio": "🎤", "doc": "📄"}.get(kind, "📎")
-            labels.append(f"{prefix}{name}")
-        if labels:
-            bubble_bits.append(" ".join(labels))
-        user_bubble = "\n".join(bubble_bits) if bubble_bits else "（附件）"
-        # 纯切换指令：不写入当前会话、不走 Agent
-        tstrip = text.strip()
-        if tstrip in ("新对话", "新建对话", "New Agent", "换个话题") or tstrip.lower() == "new agent":
-            self.create_new_agent()
-            return
-        if any(k in tstrip for k in ("新对话", "新建对话", "New Agent", "换个话题")) and not attachments and len(tstrip) < 12:
-            self.create_new_agent()
-            return
-
-        if not (self._studio_open and self.agent_studio.isVisible()):
-            self.bubble_lane.push(user_bubble, role="user", ms=5000)
-        user_msg_id = ""
-        try:
-            item = chat_history.add_message(
-                "user", user_bubble, meta={"prompt": ""}  # prompt 稍后补
-            )
-            user_msg_id = str((item or {}).get("id") or "")
-        except Exception:
-            pass
-        if self._studio_open and self.agent_studio.isVisible():
-            try:
-                self.agent_studio.reload()
-            except Exception:
-                pass
-        if any(k in text for k in ("查看记事", "记事内容", "打开记事", "记事本")):
-            self.open_notes_panel()
-        if any(k in text for k in ("查看记忆", "打开记忆", "记忆面板")):
-            self.open_memory_panel()
-        if any(k in text for k in ("聊天记录", "查看对话", "历史对话", "对话记录", "切换对话", "对话列表")):
-            self.open_history_panel()
-        if any(k in text for k in ("工作区", "打开文件夹", "切换项目", "代码目录")):
-            self.open_workspace_panel()
-
-        try:
-            turn = resolve_turn(text, doc_paths=docs, media_items=media)
-            prompt = turn.text_prompt
-            user_content = turn.user_content
-        except Exception as e:
-            self.bubble_lane.push(f"附件处理失败：{e}", role="assistant", ms=9000)
-            return
-
-        if user_msg_id:
-            try:
-                chat_history.update_message_meta(
-                    user_msg_id,
-                    {"prompt": prompt, "media_mode": turn.mode},
-                )
-            except Exception:
-                pass
-
-        mem_text = text.strip() if text.strip() else (
-            "（附件：" + "、".join(labels) + "）" if labels else ""
-        )
-
-        self.chat_panel.set_busy(True)
-        studio_vis = self._studio_open and self.agent_studio.isVisible()
-        if studio_vis:
-            try:
-                self.agent_studio.begin_stream()
-            except Exception:
-                pass
-        else:
-            self.bubble_lane.show_thinking()
-        if not self.agent_runner.ask(
-            prompt,
-            memory_user_text=mem_text or None,
-            user_msg_id=user_msg_id,
-            user_content=user_content,
-        ):
-            self.chat_panel.set_busy(False)
-            self.bubble_lane.clear_thinking()
-            if not (self._studio_open and self.agent_studio.isVisible()):
-                self.bubble_lane.push(
-                    "暂时发不出去，可能上一条还在答，或 API Key 未配置。",
-                    role="assistant",
-                    ms=8000,
-                )
-
+        return self.agent_ctrl.on_chat_send(text=text, attachments=attachments)
     def on_agent_ui_event(self, ev: object):
-        """工具线程发出的终端审批等（也可走 stream_event）。"""
-        if isinstance(ev, dict):
-            self.on_agent_stream_event(ev)
-
+        return self.agent_ctrl.on_agent_ui_event(ev=ev)
     def on_agent_stream_event(self, ev: object):
-        data = ev if isinstance(ev, dict) else {}
-        kind = str(data.get("kind") or "")
-        studio_vis = self._studio_open and self.agent_studio.isVisible()
-
-        # 工作台未打开时：终端审批用独立对话框
-        if kind == "command_approval" and not studio_vis:
-            self._prompt_command_approval_dialog(data)
-            return
-
-        if studio_vis:
-            try:
-                # 终端审批若工作室打开工作台更直观
-                if kind in ("command_approval", "command_auto", "command_result"):
-                    if not studio_vis:
-                        pass
-                self.agent_studio.handle_stream_event(data)
-            except Exception:
-                pass
-            return
-        # 气泡模式：思考/状态
-        if kind in ("thinking", "status", "tool", "plan"):
-            tip = str(data.get("text") or "").strip()
-            if kind == "plan" and not tip:
-                steps = data.get("steps") or []
-                tip = f"计划 {len(steps)} 步" if steps else "已生成计划"
-            try:
-                self.bubble_lane.show_thinking(tip[:80] if tip else None)
-            except Exception:
-                pass
-
+        return self.agent_ctrl.on_agent_stream_event(ev=ev)
     def _prompt_command_approval_dialog(self, data: dict):
-        """非工作台时弹出统一确认框（非阻塞，避免卡住主线程导致其它确认 UI 消失）。"""
-        from agent.command_approval import resolve_command_approval
-        from agent.ui_dialogs import show_choice
-
-        # 若此刻工作台已打开，改走聊天内嵌审批
-        if self._studio_open and self.agent_studio.isVisible():
-            try:
-                self.agent_studio.handle_stream_event(
-                    {**(data if isinstance(data, dict) else {}), "kind": "command_approval"}
-                )
-            except Exception:
-                pass
-            return
-
-        rid = str(data.get("request_id") or "")
-        cmd = str(data.get("command") or "")
-        cwd = str(data.get("cwd") or "")
-        detail_lines = []
-        if cwd:
-            detail_lines.append(f"# cwd: {cwd}")
-        detail_lines.append(f"$ {cmd}")
-
-        old = getattr(self, "_cmd_approval_dlg", None)
-        if old is not None:
-            try:
-                # 替换对话框时不要触发「拒绝」回调，避免误否认仍在等待的请求
-                old.rejected.disconnect()
-            except Exception:
-                pass
-            try:
-                old.close()
-            except Exception:
-                pass
-            self._cmd_approval_dlg = None
-
-        def _on_pick(action: str):
-            self._cmd_approval_dlg = None
-            try:
-                resolve_command_approval(rid, action)
-            except Exception:
-                pass
-
-        self._cmd_approval_dlg = show_choice(
-            self,
-            "确认执行终端命令",
-            "Agent 想运行下面的命令。可运行、总是允许（加入信任）或取消。",
-            detail="\n".join(detail_lines),
-            choices=[
-                ("deny", "取消"),
-                ("always", "总是允许"),
-                ("allow", "运行"),
-            ],
-            on_pick=_on_pick,
-        )
-
+        return self.agent_ctrl._prompt_command_approval_dialog(data=data)
     def on_agent_busy(self, busy: bool):
-        self.chat_panel.set_busy(busy)
-        if self._studio_open:
-            self.agent_studio.set_busy(busy)
-        if busy and not (self._studio_open and self.agent_studio.isVisible()):
-            self.bubble_lane.show_thinking()
-        # 空闲时由 reply/error 清 thinking
-
+        return self.agent_ctrl.on_agent_busy(busy=busy)
     def on_agent_reply(self, reply: str):
-        self.bubble_lane.set_pet_geo(
-            self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-        )
-        text = reply or "（没有回复）"
-        meta = None
-        studio_vis = self._studio_open and self.agent_studio.isVisible()
-        if studio_vis:
-            try:
-                snap = self.agent_studio.finalize_stream()
-                if isinstance(snap, dict):
-                    meta = {
-                        "process": snap.get("process") or [],
-                        "terminals": snap.get("terminals") or [],
-                    }
-                    # 流式累积正文若更完整可用它（否则用 runner 最终回复）
-                    streamed = str(snap.get("text") or "").strip()
-                    if streamed and len(streamed) >= max(20, len(text) // 2):
-                        text = streamed
-            except Exception:
-                pass
-        try:
-            chat_history.add_message("assistant", text, meta=meta)
-        except Exception:
-            pass
-        if studio_vis:
-            self.agent_studio.append_assistant(text)
-            self.agent_studio.set_busy(False)
-        else:
-            self.bubble_lane.push(
-                text,
-                role="assistant",
-                ms=display_ms_for_text(text, base=14000),
-            )
-        self.change_state("happy")
-        self.happy_timer.start(max(self.happy_duration, 1600))
-
+        return self.agent_ctrl.on_agent_reply(reply=reply)
     def on_agent_stop(self):
-        """UI 请求停止本轮。"""
-        if not self.agent_runner.cancel():
-            return
-        try:
-            self.bubble_lane.show_thinking("正在停止…")
-        except Exception:
-            pass
-
+        return self.agent_ctrl.on_agent_stop()
     def on_agent_cancelled(self, msg: str):
-        self.bubble_lane.clear_thinking()
-        text = f"已停止：{msg or '本轮任务已取消'}"
-        meta = {
-            "status": "cancelled",
-            "retryable": True,
-            "error": msg or "",
-        }
-        studio_vis = self._studio_open and self.agent_studio.isVisible()
-        if studio_vis:
-            try:
-                snap = self.agent_studio.finalize_stream()
-                if isinstance(snap, dict):
-                    meta["process"] = snap.get("process") or []
-                    meta["terminals"] = snap.get("terminals") or []
-            except Exception:
-                pass
-        try:
-            chat_history.add_message("assistant", text, meta=meta)
-        except Exception:
-            pass
-        if studio_vis:
-            try:
-                self.agent_studio.reload()
-                self.agent_studio.set_busy(False)
-            except Exception:
-                pass
-        else:
-            self.bubble_lane.push(text, role="assistant", ms=8000)
-
+        return self.agent_ctrl.on_agent_cancelled(msg=msg)
     def on_agent_error(self, err: str):
-        self.bubble_lane.clear_thinking()
-        from agent.run_control import is_invalid_chat_history, is_network_error
-
-        if is_invalid_chat_history(err):
-            status = "interrupted"
-            prefix = "对话中断"
-            hint = "\n（短时记忆已自动修复，可点「重试」继续）"
-        elif is_network_error(err):
-            status = "interrupted"
-            prefix = "网络中断"
-            hint = "\n（可点「重试」继续同一请求）"
-        else:
-            status = "failed"
-            prefix = "出错了"
-            hint = ""
-        # 展示时去掉超长 LangGraph 排障链接，保留首句
-        brief = (err or "").strip()
-        if "For troubleshooting" in brief:
-            brief = brief.split("For troubleshooting")[0].strip()
-        if len(brief) > 480:
-            brief = brief[:479] + "…"
-        msg = f"{prefix}：{brief}{hint}"
-        meta = {
-            "status": status,
-            "retryable": True,
-            "error": err or "",
-        }
-        studio_vis = self._studio_open and self.agent_studio.isVisible()
-        if studio_vis:
-            try:
-                snap = self.agent_studio.finalize_stream()
-                if isinstance(snap, dict):
-                    meta["process"] = snap.get("process") or []
-                    meta["terminals"] = snap.get("terminals") or []
-            except Exception:
-                pass
-        try:
-            chat_history.add_message("assistant", msg, meta=meta)
-        except Exception:
-            pass
-        if studio_vis:
-            try:
-                self.agent_studio.reload()
-                self.agent_studio.set_busy(False)
-            except Exception:
-                pass
-        else:
-            self.bubble_lane.push(msg, role="assistant", ms=10000)
-
+        return self.agent_ctrl.on_agent_error(err=err)
     def on_retry_from_message(self, message_id: str):
-        """从失败/中断的助手消息重试上一请求。"""
-        if self.agent_runner.busy:
-            return
-        try:
-            chat_history.drop_trailing_failed_assistant()
-        except Exception:
-            pass
-        # 优先用 pending；否则找对应用户消息的 prompt
-        from agent.run_control import get_pending
-
-        pending = get_pending()
-        prompt = ""
-        mem = None
-        uid = ""
-        if pending and (pending.prompt or "").strip():
-            prompt = pending.prompt
-            mem = pending.user_text or None
-            uid = pending.user_msg_id or ""
-        else:
-            try:
-                # 截断后最后一条应为用户消息
-                msgs = chat_history.list_messages(40)
-                for m in reversed(msgs):
-                    if m.get("role") == "user":
-                        meta = m.get("meta") if isinstance(m.get("meta"), dict) else {}
-                        prompt = str(meta.get("prompt") or m.get("text") or "")
-                        mem = str(m.get("text") or "") or None
-                        uid = str(m.get("id") or "")
-                        break
-            except Exception:
-                pass
-        if not (prompt or "").strip():
-            self.bubble_lane.push("没有可重试的请求。", role="assistant", ms=6000)
-            return
-        self._start_agent_prompt(prompt, memory_user_text=mem, user_msg_id=uid, add_user=False)
-
+        return self.agent_ctrl.on_retry_from_message(message_id=message_id)
     def cancel_rewind_edit(self):
-        """放弃从此重开编辑：不清空历史，只退出编辑态。"""
-        was = bool(self._rewind_anchor_id)
-        self._rewind_anchor_id = None
-        try:
-            self.chat_panel.set_rewind_mode(False)
-        except Exception:
-            pass
-        try:
-            self.agent_studio.set_rewind_mode(False)
-        except Exception:
-            pass
-        if was:
-            try:
-                self.bubble_lane.push(
-                    "已取消从此重开，对话保持原样。", role="assistant", ms=4500
-                )
-            except Exception:
-                pass
-
+        return self.agent_ctrl.cancel_rewind_edit()
     def on_rewind_from_message(self, message_id: str):
-        """进入从此重开编辑：把原文载入输入框，发送才截断；取消则不变。"""
-        if self.agent_runner.busy:
-            self.bubble_lane.push("请先停止当前任务，再从此处重开。", role="assistant", ms=6000)
-            return
-        msg = chat_history.get_message(message_id)
-        if not msg or msg.get("role") != "user":
-            return
-        old_text = str(msg.get("text") or "")
-        self._rewind_anchor_id = message_id
-
-        # 载入输入框供编辑（工作台优先）
-        try:
-            self.chat_panel.set_draft_text(old_text)
-            self.chat_panel.set_rewind_mode(True, old_text)
-        except Exception:
-            pass
-        try:
-            self.agent_studio.set_draft_text(old_text)
-            self.agent_studio.set_rewind_mode(True, old_text)
-        except Exception:
-            pass
-
-        if self._studio_open and self.agent_studio.isVisible():
-            try:
-                self.agent_studio.raise_()
-                self.agent_studio.activateWindow()
-                self.agent_studio.input.setFocus()
-            except Exception:
-                pass
-        else:
-            # 小条可见时聚焦；否则打开工作台更方便编辑
-            try:
-                if self.chat_panel.isVisible():
-                    self.chat_panel.input.setFocus()
-                else:
-                    self.open_agent_studio()
-                    self.agent_studio.set_draft_text(old_text)
-                    self.agent_studio.set_rewind_mode(True, old_text)
-            except Exception:
-                pass
-
+        return self.agent_ctrl.on_rewind_from_message(message_id=message_id)
     def _commit_rewind_send(
         self,
         text: str,
         attachments: list | None,
         message_id: str,
     ) -> None:
-        """发送时才真正截断历史并用（可编辑后的）内容重跑。"""
-        from pathlib import Path
-
-        from agent.providers.media_gateway import resolve_turn
-
-        new_text = (text or "").strip()
-        attachments = list(attachments or [])
-        if attachments and isinstance(attachments[0], str):
-            attachments = [
-                {"kind": "doc", "path": p, "name": Path(p).name, "analysis": ""}
-                for p in attachments
-            ]
-        if not new_text and not attachments:
-            self.bubble_lane.push("内容不能为空。", role="assistant", ms=5000)
-            return
-
-        # 先退出编辑态（避免递归）
-        self._rewind_anchor_id = None
-        try:
-            self.chat_panel.set_rewind_mode(False)
-            self.agent_studio.set_rewind_mode(False)
-        except Exception:
-            pass
-
-        result = chat_history.truncate_after_message(message_id, keep_anchor=True)
-        if not result.get("ok"):
-            self.bubble_lane.push(
-                f"回退失败：{result.get('error') or '未知错误'}",
-                role="assistant",
-                ms=7000,
-            )
-            return
-
-        docs = [a["path"] for a in attachments if a.get("kind") == "doc" and a.get("path")]
-        media = [a for a in attachments if a.get("kind") in ("audio", "image")]
-        labels = []
-        for a in attachments:
-            name = a.get("name") or Path(str(a.get("path") or "")).name
-            kind = a.get("kind")
-            prefix = {"image": "🖼", "audio": "🎤", "doc": "📄"}.get(kind, "📎")
-            labels.append(f"{prefix}{name}")
-        bubble_bits = []
-        if new_text:
-            bubble_bits.append(new_text)
-        if labels:
-            bubble_bits.append(" ".join(labels))
-        user_bubble = "\n".join(bubble_bits) if bubble_bits else "（附件）"
-
-        try:
-            turn = resolve_turn(new_text, doc_paths=docs, media_items=media)
-            prompt = turn.text_prompt
-            user_content = turn.user_content
-        except Exception as e:
-            self.bubble_lane.push(f"附件处理失败：{e}", role="assistant", ms=9000)
-            return
-
-        try:
-            chat_history.replace_message_text(
-                message_id, user_bubble, prompt=prompt
-            )
-        except Exception:
-            pass
-
-        if self._studio_open and self.agent_studio.isVisible():
-            try:
-                self.agent_studio.reload()
-            except Exception:
-                pass
-        else:
-            try:
-                self.bubble_lane.push(user_bubble, role="user", ms=5000)
-            except Exception:
-                pass
-
-        mem_text = new_text if new_text else (
-            "（附件：" + "、".join(labels) + "）" if labels else user_bubble
-        )
-        self._start_agent_prompt(
-            prompt,
-            memory_user_text=mem_text,
-            user_msg_id=message_id,
-            add_user=False,
-            user_content=user_content,
-        )
-
+        return self.agent_ctrl._commit_rewind_send(text=text, attachments=attachments, message_id=message_id)
     def _start_agent_prompt(
         self,
         prompt: str,
@@ -1435,364 +999,87 @@ class DesktopPet(QWidget):
         add_user: bool = False,
         user_content=None,
     ) -> None:
-        """内部启动 Agent（重试/回退用，默认不重复写入用户气泡）。"""
-        if add_user and memory_user_text:
-            try:
-                chat_history.add_message("user", memory_user_text)
-            except Exception:
-                pass
-        self.chat_panel.set_busy(True)
-        studio_vis = self._studio_open and self.agent_studio.isVisible()
-        if studio_vis:
-            try:
-                self.agent_studio.begin_stream()
-            except Exception:
-                pass
-        else:
-            self.bubble_lane.show_thinking()
-        if not self.agent_runner.ask(
-            prompt,
-            memory_user_text=memory_user_text,
-            user_msg_id=user_msg_id,
-            user_content=user_content,
-        ):
-            self.chat_panel.set_busy(False)
-            self.bubble_lane.clear_thinking()
-
+        return self.agent_ctrl._start_agent_prompt(prompt=prompt, memory_user_text=memory_user_text, user_msg_id=user_msg_id, add_user=add_user, user_content=user_content)
     def on_bubble_open_full(self, text: str, role: str):
-        """点击气泡 → 打开聊天记录并展示全文。"""
-        tag = {"user": "我", "assistant": "Mini_Lu", "alarm": "闹钟", "quote": "语录"}.get(role, role)
-        if role == "assistant":
-            try:
-                from agent.identity import assistant_label
-
-                tag = assistant_label()
-            except Exception:
-                pass
-        self.open_history_panel()
-        self.history_panel.show_plain_text(tag, text)
-
+        return self.agent_ctrl.on_bubble_open_full(text=text, role=role)
     def _place_tool_panel_once(self, panel) -> None:
-        """工具窗只在首次弹出时靠近桌宠一次；已打开则保持用户拖过的位置。"""
-        if panel.isVisible():
-            return
-        panel.place_near(self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT)
-
+        return self.panels._place_tool_panel_once(panel=panel)
     def open_notes_panel(self):
-        """打开记事本面板（列表简略 → 点进全文）。"""
-        self.cancel_goto_pick()
-        self._notes_open = True
-        self._place_tool_panel_once(self.notes_panel)
-        self.notes_panel.show_panel()
-
+        return self.panels.open_notes_panel()
     def _reposition_notes(self):
-        # 工具窗不跟随桌宠
-        return
-
+        return self.panels._reposition_notes()
     def on_notes_closed(self):
-        self._notes_open = False
-
+        return self.panels.on_notes_closed()
     def open_memory_panel(self):
-        """打开记忆面板（运行/对话记忆，可删可重置）。"""
-        self.cancel_goto_pick()
-        self._memory_open = True
-        self._place_tool_panel_once(self.memory_panel)
-        self.memory_panel.show_panel()
-
+        return self.panels.open_memory_panel()
     def open_history_panel(self):
-        """打开对话列表 / 聊天记录（多 Agent 切换）。"""
-        self.cancel_goto_pick()
-        self._history_open = True
-        self._place_tool_panel_once(self.history_panel)
-        self.history_panel.show_panel()
-
+        return self.panels.open_history_panel()
     def create_new_agent(self):
-        """新建独立对话（类似 Cursor New Agent），可主动命名。"""
-        from agent.ui_dialogs import ask_text
-
-        self.cancel_goto_pick()
-        self.cancel_rewind_edit()
-        title, ok = ask_text(
-            self,
-            "新对话",
-            "给这次对话起个名字（可随时在对话列表里改）：",
-            text="新对话",
-            placeholder="例如：修登录页 / 整理笔记",
-            ok_text="创建",
-        )
-        if not ok:
-            return
-        title = (title or "").strip() or "新对话"
-        s = chat_history.create_session(title, activate=True)
-        self.on_session_changed(s["id"])
-        if self._studio_open and self.agent_studio.isVisible():
-            self.agent_studio.reload()
-        else:
-            self.open_chat()
-        try:
-            self.bubble_lane.push(
-                f"已新建对话：{s.get('title') or title}",
-                role="assistant",
-                ms=3500,
-            )
-        except Exception:
-            pass
-
+        return self.panels.create_new_agent()
     def on_session_changed(self, session_id: str = ""):
-        """切换对话后刷新输入栏提示。"""
-        if self._rewind_anchor_id:
-            self._rewind_anchor_id = None
-            try:
-                self.chat_panel.set_rewind_mode(False)
-                self.agent_studio.set_rewind_mode(False)
-            except Exception:
-                pass
-        if hasattr(self, "chat_panel"):
-            self.chat_panel.refresh_session_hint()
-        # 工作台内部已自行刷新聊天；仅同步历史面板
-        if self._history_open and self.history_panel.isVisible():
-            self.history_panel.reload()
-        _ = session_id
-
+        return self.panels.on_session_changed(session_id=session_id)
     def open_agent_studio(self):
-        """打开编码大窗口：聊天 + 改动对比；隐藏小输入条。"""
-        self.cancel_goto_pick()
-        already_open = bool(self._studio_open and self.agent_studio.isVisible())
-        self._studio_open = True
-        set_review_enabled(True)
-        # 已打开时只刷新待确认列表，不要 place_near / show_panel（会把窗口拽回固定位置）
-        if already_open:
-            try:
-                self.agent_studio.reload_edits()
-            except Exception:
-                pass
-            return
-        draft = ""
-        try:
-            draft = self.chat_panel.get_draft_text()
-        except Exception:
-            pass
-        rewind_on = bool(self._rewind_anchor_id)
-        if self.chat_panel.isVisible():
-            self.chat_panel.hide()
-        self.agent_studio.place_near(
-            self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-        )
-        self.agent_studio.show_panel()
-        # 小条草稿 → 大窗（在 show/reload 之后写入，避免被刷新冲掉）
-        try:
-            self.agent_studio.set_draft_text(draft)
-        except Exception:
-            pass
-        if rewind_on:
-            try:
-                self.agent_studio.set_rewind_mode(True, draft)
-            except Exception:
-                pass
-
+        return self.panels.open_agent_studio()
     def on_studio_collapse(self):
-        """大窗「收起」→ 恢复小输入条，并带回草稿。"""
-        self._studio_open = False
-        self._chat_open = True
-        try:
-            self.chat_panel.set_draft_text(self.agent_studio.get_draft_text())
-        except Exception:
-            pass
-        self.chat_panel.refresh_session_hint()
-        if self.chat_panel.is_pinned():
-            self.chat_panel.show()
-            self.chat_panel.raise_()
-        else:
-            self.chat_panel.show_near(
-                self.x(), self.y(), WINDOW_WIDTH, WINDOW_HEIGHT
-            )
-
+        return self.panels.on_studio_collapse()
     def on_studio_closed(self):
-        """大窗 ×：直接关闭，不自动打开小输入条；草稿写回小条供下次打开。"""
-        self._studio_open = False
-        self._chat_open = False
-        try:
-            self.chat_panel.set_draft_text(self.agent_studio.get_draft_text())
-        except Exception:
-            pass
-
+        return self.panels.on_studio_closed()
     def apply_ui_font_zoom(self):
-        """Ctrl+滚轮后刷新各聊天相关面板字号。"""
-        try:
-            from agent.message_view import refresh_font_sizes
-
-            refresh_font_sizes()
-        except Exception:
-            pass
-        try:
-            self.chat_panel.apply_font_zoom()
-        except Exception:
-            pass
-        try:
-            self.agent_studio.apply_font_zoom()
-        except Exception:
-            pass
-
+        return self.panels.apply_ui_font_zoom()
     def _reposition_studio(self):
-        # 保留接口；大窗口不再强制跟随宠物
-        return
-
+        return self.panels._reposition_studio()
     def on_edits_changed(self):
-        if self._studio_open and self.agent_studio.isVisible():
-            self.agent_studio.reload_edits()
-
+        return self.panels.on_edits_changed()
     def on_studio_send(self, text: str, attachments: list | None = None):
-        """大窗口发送：与小输入条同一套 Agent 管线（含附件）。"""
-        self.on_chat_send(text, attachments)
-
+        return self.panels.on_studio_send(text=text, attachments=attachments)
     def on_history_closed(self):
-        self._history_open = False
-
+        return self.panels.on_history_closed()
     def _reposition_history(self):
-        return
-
+        return self.panels._reposition_history()
     def open_workspace_panel(self):
-        """打开工作区管理（选择/切换代码项目文件夹）。"""
-        self.cancel_goto_pick()
-        self._workspace_open = True
-        self._place_tool_panel_once(self.workspace_panel)
-        self.workspace_panel.show_panel()
-
+        return self.panels.open_workspace_panel()
     def on_workspace_closed(self):
-        self._workspace_open = False
-
+        return self.panels.on_workspace_closed()
     def _reposition_workspace(self):
-        return
-
+        return self.panels._reposition_workspace()
     def _on_workspace_changed(self):
-        self._refresh_workspace_tooltip()
-        if hasattr(self, "agent_studio"):
-            self.agent_studio.refresh_workspace()
-        active = get_active_root()
-        tip = f"当前项目：{active}" if active else "已更新工作区"
-        try:
-            self.bubble_lane.push(tip, role="assistant", ms=3500)
-        except Exception:
-            pass
-
+        return self.panels._on_workspace_changed()
     def _refresh_workspace_tooltip(self):
-        active = get_active_root()
-        if hasattr(self, "chat_panel") and hasattr(self.chat_panel, "ws_btn"):
-            if active:
-                self.chat_panel.ws_btn.setToolTip(f"工作区（当前：{active}）")
-            else:
-                self.chat_panel.ws_btn.setToolTip("工作区：打开/切换代码项目文件夹")
-
+        return self.panels._refresh_workspace_tooltip()
     def _reposition_memory(self):
-        return
-
+        return self.panels._reposition_memory()
     def on_memory_closed(self):
-        self._memory_open = False
-
+        return self.panels.on_memory_closed()
     def open_quotes_panel(self):
-        self.cancel_goto_pick()
-        self._quotes_open = True
-        self._place_tool_panel_once(self.quotes_panel)
-        self.quotes_panel.show_panel()
-
+        return self.panels.open_quotes_panel()
     def _reposition_quotes(self):
-        return
-
+        return self.panels._reposition_quotes()
     def on_quotes_closed(self):
-        self._quotes_open = False
-
+        return self.panels.on_quotes_closed()
     def open_prompt_panel(self):
-        """打开 Prompt 版本 / A/B / 反馈改写面板。"""
-        self.cancel_goto_pick()
-        self._prompt_open = True
-        self._place_tool_panel_once(self.prompt_panel)
-        self.prompt_panel.show_panel()
-
+        return self.panels.open_prompt_panel()
     def _reposition_prompt(self):
-        return
-
+        return self.panels._reposition_prompt()
     def on_prompt_closed(self):
-        self._prompt_open = False
-
+        return self.panels.on_prompt_closed()
     def open_models_panel(self):
-        """打开多模型 / API 接入设置。"""
-        self.cancel_goto_pick()
-        self._models_open = True
-        self._place_tool_panel_once(self.models_panel)
-        self.models_panel.show_panel()
-
+        return self.panels.open_models_panel()
     def _reposition_models(self):
-        return
-
+        return self.panels._reposition_models()
     def on_models_closed(self):
-        self._models_open = False
-
+        return self.panels.on_models_closed()
     def on_models_changed(self):
-        """切换 Chat 模型后重建 Agent。"""
-        ok = self.agent_runner.reset_agent()
-        if not ok:
-            from agent.ui_dialogs import inform
-
-            inform(
-                self,
-                "模型设置",
-                "Agent 忙碌中，当前回复结束后的下一轮将使用新模型。",
-            )
-
+        return self.panels.on_models_changed()
     def open_extensions_panel(self):
-        self.cancel_goto_pick()
-        self._extensions_open = True
-        panel = self.extensions_panel
-        if not panel.isVisible():
-            if self._studio_open and self.agent_studio.isVisible():
-                g = self.agent_studio.frameGeometry()
-                # 先确保有默认尺寸再算位置
-                if panel.width() < 100:
-                    panel.resize(980, 580)
-                x = g.right() + 8
-                y = g.top() + 40
-                from agent.hover_tip import screen_geometry_at
-                from PySide6.QtCore import QPoint
-
-                screen = screen_geometry_at(QPoint(g.center().x(), g.center().y()))
-                if x + panel.width() > screen.right() - 8:
-                    x = max(screen.left() + 8, g.left() - panel.width() - 8)
-                x = max(screen.left() + 8, min(x, screen.right() - panel.width() - 8))
-                y = max(screen.top() + 8, min(y, screen.bottom() - panel.height() - 8))
-                panel.move(x, y)
-            else:
-                self._place_tool_panel_once(panel)
-        panel.show_panel()
-
+        return self.panels.open_extensions_panel()
     def _reposition_extensions(self):
-        return
-
+        return self.panels._reposition_extensions()
     def on_extensions_closed(self):
-        self._extensions_open = False
-
+        return self.panels.on_extensions_closed()
     def on_extensions_changed(self):
-        ok = self.agent_runner.reset_agent()
-        if not ok:
-            from agent.ui_dialogs import inform
-
-            inform(
-                self,
-                "扩展",
-                "Agent 忙碌中，当前回复结束后的下一轮将带上新 MCP 工具。",
-            )
-
+        return self.panels.on_extensions_changed()
     def on_prompt_changed(self):
-        """激活版本或 A/B 变更后重建 Agent。"""
-        ok = self.agent_runner.reset_agent()
-        if not ok:
-            from agent.ui_dialogs import inform
-
-            inform(
-                self,
-                "Prompt",
-                "Agent 忙碌中，稍后空闲会使用新 Prompt（或等当前回复结束后再试）。",
-            )
-
+        return self.panels.on_prompt_changed()
     def _restart_quote_timer(self):
         settings = quotes_store.get_settings()
         ms = max(8, int(settings.get("interval_seconds") or 12)) * 1000
@@ -1831,25 +1118,42 @@ class DesktopPet(QWidget):
         if self._notes_open and self.notes_panel.isVisible():
             self.notes_panel.reload()
 
+    def schedule_reminder_timer(self):
+        """按「下一个闹钟」设定单次 Timer，避免每秒空转。"""
+        from datetime import datetime
+
+        try:
+            from agent.notes_store import next_due_alarm_at
+
+            nxt = next_due_alarm_at()
+        except Exception:
+            nxt = None
+        self.reminder_timer.stop()
+        if nxt is None:
+            return
+        delay_ms = int((nxt - datetime.now()).total_seconds() * 1000)
+        # 已到期或时钟回拨：尽快再查；最远 1 小时醒一次以免漏掉
+        if delay_ms <= 0:
+            delay_ms = 200
+        else:
+            delay_ms = min(max(delay_ms, 200), 3_600_000)
+        self.reminder_timer.start(delay_ms)
+
     def check_reminders(self):
-        """每秒检查到期记事/旧版 reminders。"""
+        """到期检查；结束后按下次闹钟重调度。"""
         messages: list[str] = []
         try:
             from agent.notes_store import pop_due_notes
+            from agent.reminders import migrate_legacy_reminders
 
+            migrate_legacy_reminders()
             for item in pop_due_notes():
                 messages.append(item.get("content") or item.get("summary") or "提醒")
         except Exception:
             pass
-        try:
-            from agent.reminders import pop_due
-
-            for item in pop_due():
-                messages.append(item.get("content") or "提醒")
-        except Exception:
-            pass
         for text in messages:
             self.show_reminder_bubble(text)
+        self.schedule_reminder_timer()
 
     def show_context_menu(self, pos: QPoint):
         """右键菜单"""
@@ -1975,14 +1279,14 @@ class DesktopPet(QWidget):
         <p><b>左键点击</b>：开心互动</p>
         <p><b>双击</b> 或 <b>右键 → 打开聊天</b>：输入框发送；回复以气泡或工作台显示</p>
         <p><b>长回复</b>：气泡显示预览；点气泡或「聊天记录」可看全文</p>
-        <p><b>新对话</b>：聊天栏「＋」或右键「新对话」；各对话上下文独立（类 Cursor New Agent）</p>
+        <p><b>新对话</b>：聊天栏「＋」或右键「新对话」；各对话上下文独立</p>
         <p><b>Agent 工作台</b>：聊天栏「⛶」展开大窗口；改代码会暂存，对比后「保存/丢弃」</p>
         <p><b>模型设置</b>：右键「模型设置…」切换 DeepSeek / 通义 / 智谱 / Kimi / OpenAI / 聚合网关 / Ollama，或自定义 OpenAI 兼容端点</p>
         <p><b>右键 → 查看记事 / 记忆 / 语录 / Prompt 设置 / 模型设置 / 聊天记录 / 工作区</b></p>
         <p><b>Prompt 设置</b>：版本化 system prompt、A/B 分流；工作台消息可 👍👎，差评可生成改写候选并人工采纳</p>
-        <p><b>工作区</b>：聊天栏「📁」打开文件夹（类似 VS Code），设定代码读写根目录</p>
+        <p><b>工作区</b>：聊天栏「📁」打开文件夹，设定代码读写根目录</p>
         <p><b>待机语录</b>：空闲时偶尔冒泡；可在面板添加/删除，默认见 config/quotes.yaml</p>
-        <p><b>聊天举例</b>：「记住我叫 Lee」「查看记忆」「聊天记录」「打开QQ」「工作区」</p>
+        <p><b>聊天举例</b>：「记住我叫 Mini_Lu」「查看记忆」「聊天记录」「打开QQ」「工作区」</p>
         <p><b>闹钟</b>：到期时暖色气泡提醒</p>
         <p><b>右键 → 点选横向移动…</b>：再点屏幕目标位置，形象会<strong>只左右</strong>走到该处（Esc / 右键取消）</p>
         <p><b>Esc 键</b>：关闭记事/语录/聊天记录/工作区/聊天 / 取消点选</p>

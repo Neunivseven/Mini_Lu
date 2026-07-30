@@ -232,7 +232,7 @@ class WorkspaceFileTree(QWidget):
         for i in range(self.tree.topLevelItemCount()):
             _walk(self.tree.topLevelItem(i))
 
-    # —— 路径安全 ——
+    # 路径安全
 
     def _under_root(self, path: Path) -> bool:
         if not self._root:
@@ -297,7 +297,7 @@ class WorkspaceFileTree(QWidget):
         self._populate(item)
         item.setExpanded(True)
 
-    # —— 加载 ——
+    # 加载
 
     def reload(self):
         try:
@@ -387,7 +387,7 @@ class WorkspaceFileTree(QWidget):
         if kind == "file" and path:
             self.file_open_requested.emit(str(path))
 
-    # —— 右键菜单 ——
+    # 右键菜单
 
     def _on_context_menu(self, pos):
         if not self._root:
@@ -455,7 +455,7 @@ class WorkspaceFileTree(QWidget):
         elif chosen == act_open and path and kind == "file":
             self.file_open_requested.emit(str(path))
 
-    # —— 操作 ——
+    # 操作
 
     def _action_new(self):
         if not self._root:

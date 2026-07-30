@@ -36,6 +36,9 @@ data/workflows/
 data/*.sqlite
 data/*.sqlite-*
 data/_studio_smoke.py
+data/reminders.json
+data/reminders.json.bak
+data/reminders.json.migrated
 
 # —— Python / 工具缓存 ——
 __pycache__/

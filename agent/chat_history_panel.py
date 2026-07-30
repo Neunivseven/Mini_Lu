@@ -1,4 +1,4 @@
-"""聊天 / Agent 列表面板：多会话切换 + 消息回看（类 Cursor New Agent）。"""
+"""聊天 / Agent 列表面板：多会话切换 + 消息回看。"""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
@@ -103,7 +103,7 @@ class ChatHistoryPanel(QWidget):
         header = build_panel_header(title, close_btn)
         lay.addWidget(header)
 
-        meta = QLabel("左侧切换对话（互不串上下文）；＋新建类似 Cursor New Agent。")
+        meta = QLabel("左侧切换对话（互不串上下文）；＋新建独立对话。")
         meta.setObjectName("meta")
         meta.setWordWrap(True)
         lay.addWidget(meta)

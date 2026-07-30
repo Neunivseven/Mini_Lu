@@ -23,6 +23,16 @@ def notes_path() -> Path:
     return p
 
 
+def ensure_reminders_migrated() -> None:
+    """确保旧 reminders.json 已并入本库（幂等）。"""
+    try:
+        from agent.reminders import migrate_legacy_reminders
+
+        migrate_legacy_reminders()
+    except Exception:
+        pass
+
+
 def legacy_md_path() -> Path:
     return app_dir() / "data" / "notes.md"
 
@@ -63,6 +73,17 @@ def _save(data: dict[str, Any]) -> None:
         json.dumps(data, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _notify_alarms_changed() -> None:
+    try:
+        from agent.ui_bridge import get_bridge
+
+        br = get_bridge()
+        if br is not None:
+            br.reminders_changed.emit()
+    except Exception:
+        pass
 
 
 def _make_summary(content: str, summary: str | None = None, max_len: int = 36) -> str:
@@ -263,6 +284,8 @@ def add_note(
     data = _load()
     data["items"].insert(0, item)
     _save(data)
+    if kind == "alarm":
+        _notify_alarms_changed()
     return item
 
 
@@ -307,6 +330,7 @@ def clear_reminder(note_id: str) -> str:
         item["repeat"] = "none"
         item["kind"] = "note"
         _save(data)
+        _notify_alarms_changed()
         return "ok"
     return "missing"
 
@@ -356,7 +380,27 @@ def pop_due_notes(now: datetime | None = None) -> list[dict[str, Any]]:
             item["alarm_mode"] = "none"
     if changed:
         _save(data)
+        _notify_alarms_changed()
     return due
+
+
+def next_due_alarm_at(now: datetime | None = None) -> datetime | None:
+    """下一个仍开启闹钟的到期时间；无则 None。"""
+    now = now or datetime.now()
+    soonest: datetime | None = None
+    for item in list_notes(200, kind="alarm"):
+        if not item.get("alarm_enabled"):
+            continue
+        raw = item.get("remind_at")
+        if not raw:
+            continue
+        try:
+            at = datetime.strptime(str(raw), "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            continue
+        if soonest is None or at < soonest:
+            soonest = at
+    return soonest
 
 
 def _alarm_label(n: dict[str, Any]) -> str:

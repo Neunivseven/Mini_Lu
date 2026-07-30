@@ -26,6 +26,9 @@ DANGEROUS_DIR_NAMES = {
     "__pycache__",
     ".venv",
     "venv",
+    ".tox",
+    ".eggs",
+    "site-packages",
 }
 
 DANGEROUS_FILE_NAMES = {
@@ -35,6 +38,26 @@ DANGEROUS_FILE_NAMES = {
     ".bash_profile",
     ".profile",
     ".mcp.json",
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+}
+
+# 应用 config/ 下敏感配置（含明文 API Key）；Agent 读写一律拒绝
+_SECRET_NAME_SUFFIXES = (
+    ".local.yaml",
+    ".local.yml",
+    ".local.json",
+)
+_SECRET_BASENAMES = {
+    "models.local.yaml",
+    "llm.local.yaml",
+    "mcp.local.yaml",
+    "skills.local.yaml",
+    "metacoding.local.yaml",
+    "apps.local.yaml",
+    "command_trust.local.yaml",
 }
 
 # 绝对禁止写入的系统前缀（Windows / 通用）
@@ -137,7 +160,7 @@ def list_user_roots() -> list[str]:
 
 
 def get_active_root() -> Path | None:
-    """当前活动项目根（类似 VS Code 打开的文件夹）。"""
+    """当前活动项目根目录。"""
     active = (_load_workspace_config().get("active") or "").strip()
     if not active:
         return None
@@ -213,6 +236,34 @@ def backups_dir() -> Path:
     return p
 
 
+def _is_app_config_path(path: Path) -> bool:
+    """是否位于桌宠安装目录下的 config/（含 API Key 等本地配置）。"""
+    try:
+        cfg_root = (app_dir() / "config").resolve()
+        path.resolve().relative_to(cfg_root)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_secret_path(path: Path) -> bool:
+    """敏感文件：*.local.yaml、.env、以及应用 config/ 下全部文件。"""
+    name = path.name
+    low = name.lower()
+    if low in {n.lower() for n in DANGEROUS_FILE_NAMES}:
+        return True
+    if low in {n.lower() for n in _SECRET_BASENAMES}:
+        return True
+    for suf in _SECRET_NAME_SUFFIXES:
+        if low.endswith(suf):
+            return True
+    if low.startswith(".env"):
+        return True
+    if _is_app_config_path(path):
+        return True
+    return False
+
+
 def resolve_workspace_path(file_path: str, *, for_write: bool = False) -> Path:
     """解析并校验路径；非法则抛 PermissionError / ValueError。"""
     raw = (file_path or "").strip()
@@ -230,14 +281,24 @@ def resolve_workspace_path(file_path: str, *, for_write: bool = False) -> Path:
         if low.startswith(pref):
             raise PermissionError(f"禁止访问系统目录: {p}")
 
+    if _is_secret_path(p):
+        raise PermissionError(
+            f"禁止访问敏感配置/密钥文件: {p.name}\n"
+            "（API Key 与 *.local.yaml、应用 config/ 对 Agent 工具不可见）"
+        )
+
     if p.name.lower() in {n.lower() for n in DANGEROUS_FILE_NAMES}:
         raise PermissionError(f"禁止操作敏感文件: {p.name}")
 
-    if for_write:
-        for part in p.parts:
-            if part.lower() in {d.lower() for d in DANGEROUS_DIR_NAMES}:
-                if part.lower() in {".git", ".svn", ".hg"}:
-                    raise PermissionError(f"禁止写入版本库内部: {p}")
+    dangerous_dirs = {d.lower() for d in DANGEROUS_DIR_NAMES}
+    for part in p.parts:
+        if part.lower() not in dangerous_dirs:
+            continue
+        if for_write:
+            raise PermissionError(f"禁止写入受保护目录内的路径: {p}")
+        # 读：版本库元数据仍禁止；依赖目录可读但写入已拦
+        if part.lower() in {".git", ".svn", ".hg"}:
+            raise PermissionError(f"禁止访问版本库内部: {p}")
 
     roots = load_workspace_roots()
     if not any(_under(p, r) for r in roots):

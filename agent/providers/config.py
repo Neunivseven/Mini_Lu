@@ -9,7 +9,6 @@
 """
 from __future__ import annotations
 
-import copy
 import os
 import sys
 from dataclasses import dataclass, field
@@ -17,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+from agent.util_merge import deep_merge as _deep_merge
 
 
 def app_dir() -> Path:
@@ -33,16 +34,6 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"配置文件格式错误（应为映射）: {path}")
     return data
-
-
-def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    out = copy.deepcopy(base)
-    for k, v in overlay.items():
-        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
-            out[k] = _deep_merge(out[k], v)
-        else:
-            out[k] = copy.deepcopy(v)
-    return out
 
 
 @dataclass
@@ -80,7 +71,7 @@ class ProviderSpec:
             env_val = os.environ.get(env_name, "").strip()
             if env_val:
                 return env_val
-        # 兼容旧 DEEPSEEK_API_KEY
+        # 亦接受 DEEPSEEK_API_KEY
         if self.id == "deepseek" or self.raw.get("provider") == "deepseek":
             legacy = os.environ.get("DEEPSEEK_API_KEY", "").strip()
             if legacy:
@@ -143,20 +134,27 @@ def load_models_config(config_dir: Path | None = None) -> ModelsConfig:
     llm_local = _read_yaml(cfg_dir / "llm.local.yaml")
 
     if not models:
-        # 纯旧配置
+        # 无 models.yaml：用 llm.yaml 构建
         merged_flat = {**llm, **llm_local}
         models = _legacy_llm_as_models(merged_flat)
     else:
         models = _deep_merge(models, models_local)
-        # 旧 llm.local 仅覆盖 active chat 的密钥/模型，避免两套配置打架
+        # llm.yaml 只回填 llm.provider 对应条目，勿覆盖当前 active.chat
         if llm_local or llm:
             flat = {**llm, **llm_local}
-            chat_id = (models.get("active") or {}).get("chat") or "deepseek"
+            legacy_pid = str(flat.get("provider") or "deepseek").strip() or "deepseek"
             providers = models.setdefault("providers", {})
-            chat_p = providers.setdefault(str(chat_id), {})
-            if not isinstance(chat_p, dict):
-                chat_p = {}
-                providers[str(chat_id)] = chat_p
+            legacy_p = providers.get(legacy_pid)
+            if not isinstance(legacy_p, dict):
+                legacy_p = {
+                    "type": "chat",
+                    "driver": "openai_compat",
+                    "label": legacy_pid,
+                }
+                providers[legacy_pid] = legacy_p
+            local_legacy = (models_local.get("providers") or {}).get(legacy_pid)
+            if not isinstance(local_legacy, dict):
+                local_legacy = {}
             for key in (
                 "api_key",
                 "base_url",
@@ -165,8 +163,16 @@ def load_models_config(config_dir: Path | None = None) -> ModelsConfig:
                 "enable_thinking",
                 "timeout_seconds",
             ):
-                if key in flat and flat[key] not in (None, ""):
-                    chat_p[key] = flat[key]
+                if key not in flat or flat[key] in (None, ""):
+                    continue
+                # models.local 已有字段优先
+                if key in local_legacy and local_legacy[key] not in (None, ""):
+                    continue
+                # llm.local 可覆盖；llm.yaml 只填空缺
+                if key in llm_local and llm_local.get(key) not in (None, ""):
+                    legacy_p[key] = flat[key]
+                elif key not in legacy_p or legacy_p.get(key) in (None, ""):
+                    legacy_p[key] = flat[key]
             if flat.get("system_prompt"):
                 models.setdefault("defaults", {})["system_prompt"] = flat["system_prompt"]
             if flat.get("timeout_seconds") is not None:

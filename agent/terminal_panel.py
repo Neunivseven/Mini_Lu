@@ -208,7 +208,7 @@ class TerminalPanel(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # ── 顶部导航栏 ──
+        # 顶部导航栏
         nav = QWidget(self)
         nav.setObjectName("termNav")
         nav.setStyleSheet("""
@@ -275,7 +275,7 @@ class TerminalPanel(QWidget):
 
         lay.addWidget(nav)
 
-        # ── 标签栏 + 终端区 ──
+        # 标签栏 + 终端区
         self.tabs = QTabWidget(self)
         self.tabs.setTabsClosable(False)
         self.tabs.setDocumentMode(True)

@@ -1,7 +1,14 @@
 # 终端命令信任（本机，gitignore）
-# trusted_exact: 完整命令字符串
-# trusted_patterns: 正则或前缀（非法正则时按前缀匹配）
+#
+# trusted_exact: 完整命令字符串（推荐；UI「总是允许」写入此处）
+# trusted_patterns: 正则（仅建议手改本文件；过宽模式会被程序拒绝/忽略）
+#
+# 危险示例（勿添加）：
+#   - ".*" / ".+"     → 任意命令
+#   - "pip" / "python" → 无锚点短词，中间误匹配
+# 较安全示例：
+#   - "^git status$"
+#   - "^git diff"
+#   - "^pytest "
 trusted_exact: []
-trusted_patterns:
-  # - "^git status"
-  # - "^git diff"
+trusted_patterns: []

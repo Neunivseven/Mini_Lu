@@ -207,7 +207,7 @@ class _VisionWorker(QThread):
 
 
 class AnalysisHover(QWidget):
-    """悬停查看识别/解析全文（类似 Cursor 附件预览）。"""
+    """悬停查看识别/解析全文。"""
 
     def __init__(self, parent=None):
         flags = (

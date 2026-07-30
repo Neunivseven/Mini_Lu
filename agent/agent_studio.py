@@ -59,7 +59,7 @@ from agent.ui_dialogs import ask_multiline, ask_text, confirm, inform, warn
 from agent.ui_fonts import mono_font_family, ui_font, ui_font_family
 from agent.workspace_tree import WorkspaceFileTree
 
-# 兼容旧引用的默认色（主题加载前）
+# 主题加载前的默认色
 CLOTH = "#3D7EA6"
 BG = "#F3F6FA"
 SURFACE = "#E8EEF5"
@@ -182,7 +182,7 @@ class AgentStudio(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
-        # —— VS Code 风格导航栏 ——
+        # 顶栏导航
         self.drag_bar = _DragBar(self)
         self.drag_bar.double_clicked.connect(self.toggle_zoom)
         bar_lay = QHBoxLayout(self.drag_bar)
@@ -275,7 +275,7 @@ class AgentStudio(QWidget):
         bar_lay.addWidget(close_btn)
         lay.addWidget(self.drag_bar)
 
-        # —— 路径条（类似 VS Code 面包屑）——
+        # 工作区路径条
         self.ws_bar = QWidget(root)
         self.ws_bar.setObjectName("wsBar")
         ws_lay = QHBoxLayout(self.ws_bar)
@@ -324,7 +324,7 @@ class AgentStudio(QWidget):
         split.setHandleWidth(6)
         self.main_split = split
 
-        # —— 左：会话（可折叠）——
+        # 左：会话（可折叠）
         left = QWidget(split)
         self.left_panel = left
         ll = QVBoxLayout(left)
@@ -379,7 +379,7 @@ class AgentStudio(QWidget):
         lr.addStretch()
         split.addWidget(self.left_rail)
 
-        # —— 中：聊天 / 模型 选项卡 ——
+        # 中：聊天 / 模型 选项卡
         mid = QWidget(split)
         ml = QVBoxLayout(mid)
         ml.setContentsMargins(0, 0, 0, 0)
@@ -444,7 +444,7 @@ class AgentStudio(QWidget):
         ml.addWidget(self.mid_tabs, 1)
         split.addWidget(mid)
 
-        # —— 代码面板（统一标签栏 + Monaco 编辑 / diff 预览）——
+        # 代码面板（统一标签栏 + Monaco 编辑 / diff 预览）
         edits = QWidget(split)
         edits.setObjectName("editsPanel")
         self.edits_panel = edits
@@ -511,7 +511,7 @@ class AgentStudio(QWidget):
         self._code_panel_mode = "edit"
         self._sync_code_panel_mode_ui()
 
-        # —— 最右：文件目录 + 终端（可折叠）——
+        # 最右：文件目录 + 终端（可折叠）
         files_wrap = QWidget(split)
         files_wrap.setObjectName("filesPanel")
         self.files_panel = files_wrap
@@ -1052,14 +1052,14 @@ class AgentStudio(QWidget):
             from agent.ui_zoom import pt
 
             sz = max(14, pt(16))
-            pass  # edits_head_icon removed (unified tab bar)
+            pass
             if hasattr(self, "files_head_icon"):
                 self.files_head_icon.setFixedSize(sz, sz)
                 self.files_head_icon.setPixmap(pixmap("files", sz))
         except Exception:
             pass
 
-    # —— 工作区 ——
+    # 工作区
 
     def refresh_workspace(self):
         try:
@@ -1139,7 +1139,7 @@ class AgentStudio(QWidget):
         self.btn_editor_reload.setVisible(is_edit)
         self.btn_editor_save.setVisible(is_edit)
 
-    # ── 统一标签栏管理 ──
+    # 统一标签栏管理
 
     def _find_tab(self, *, path: Path | None = None, edit_id: str | None = None) -> int:
         for i, td in enumerate(self._tab_data):
@@ -1336,7 +1336,7 @@ class AgentStudio(QWidget):
         self.refresh_workspace()
         self.workspace_changed.emit()
 
-    # —— 最大化（当前屏 availableGeometry，适配任务栏/分屏）——
+    # 最大化（当前屏 availableGeometry，适配任务栏/分屏）
 
     def is_zoomed(self) -> bool:
         return self._zoomed
@@ -1424,7 +1424,7 @@ class AgentStudio(QWidget):
         self._user_placed = True
         self._restore_geom = QRect(geom)
 
-    # —— 边缘缩放 ——
+    # 边缘缩放
 
     def _hit_edges(self, pos: QPoint) -> int:
         if self._zoomed:
@@ -1786,7 +1786,6 @@ class AgentStudio(QWidget):
         self.reload()
 
     def _on_send(self):
-        # 兼容旧调用：走 composer
         self.composer._on_send()
 
     def _on_inline_keep(self, hunk_id: int):

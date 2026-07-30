@@ -1,4 +1,4 @@
-"""工作区面板：打开文件夹 / 管理可读写根目录（类似 VS Code Open Folder）。"""
+"""工作区面板：打开文件夹 / 管理可读写根目录。"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -127,7 +127,7 @@ class WorkspacePanel(QWidget):
 
         row1 = QHBoxLayout()
         btn_open = QPushButton("打开文件夹…")
-        btn_open.setToolTip("选择项目文件夹并设为当前（类似 VS Code）")
+        btn_open.setToolTip("选择项目文件夹并设为当前")
         btn_open.clicked.connect(self.pick_open_folder)
         btn_add = QPushButton("添加文件夹…")
         btn_add.setObjectName("ghost")

@@ -49,14 +49,34 @@ def image_data_url(path: str | Path) -> str:
     return f"data:{mime};base64,{b64}"
 
 
-def resolve_image_url(part: ContentPart) -> str:
-    if part.url:
-        return part.url
+def resolve_image_url(part: ContentPart, *, force_data_url: bool = False) -> str:
+    """解析图片为 API 可用 URL。
+
+    force_data_url=True（Kimi 等）：禁止公网 http(s)，仅允许 data: / ms:// / 本地转 base64。
+    """
     if part.path:
         src = str(part.path).strip()
-        if src.startswith(("http://", "https://", "data:")):
+        if src.startswith("data:") or src.startswith("ms://"):
+            return src
+        if src.startswith(("http://", "https://")):
+            if force_data_url:
+                raise ValueError(
+                    "当前模型不支持公网图片 URL，请使用本地文件（将转 base64）或 ms://file-id"
+                )
             return src
         return image_data_url(src)
+    if part.url:
+        url = str(part.url).strip()
+        if url.startswith("data:") or url.startswith("ms://"):
+            return url
+        if url.startswith(("http://", "https://")):
+            if force_data_url:
+                raise ValueError(
+                    "当前模型不支持公网图片 URL，请使用本地文件（将转 base64）或 ms://file-id"
+                )
+            return url
+        # 当作本地路径
+        return image_data_url(url)
     raise ValueError("image part 缺少 path/url")
 
 
@@ -71,7 +91,11 @@ def has_images(messages: list[UnifiedMessage] | list[ContentPart]) -> bool:
     return False
 
 
-def parts_to_openai_chat_content(parts: list[ContentPart]) -> str | list[dict[str, Any]]:
+def parts_to_openai_chat_content(
+    parts: list[ContentPart],
+    *,
+    force_image_data_url: bool = False,
+) -> str | list[dict[str, Any]]:
     """翻译为 OpenAI Chat Completions content（str 或 parts 列表）。"""
     if not parts:
         return ""
@@ -84,7 +108,7 @@ def parts_to_openai_chat_content(parts: list[ContentPart]) -> str | list[dict[st
                 out.append({"type": "text", "text": p.text})
         elif p.type == "image":
             try:
-                url = resolve_image_url(p)
+                url = resolve_image_url(p, force_data_url=force_image_data_url)
             except Exception as e:
                 out.append(
                     {
@@ -102,9 +126,29 @@ def parts_to_openai_chat_content(parts: list[ContentPart]) -> str | list[dict[st
     return out or ""
 
 
-def parts_to_langchain_content(parts: list[ContentPart]) -> str | list[dict[str, Any]]:
+def parts_to_langchain_content(
+    parts: list[ContentPart],
+    *,
+    force_image_data_url: bool = False,
+) -> str | list[dict[str, Any]]:
     """LangChain HumanMessage content（与 OpenAI 多模态块兼容）。"""
-    return parts_to_openai_chat_content(parts)
+    if not force_image_data_url:
+        try:
+            from agent.providers.hub import get_hub
+            from agent.providers.sampling import sampling_policy_for
+
+            chat = get_hub().chat
+            model = str(getattr(chat, "_model", "") or "")
+            if not model:
+                spec = getattr(chat, "spec", None)
+                if spec is not None:
+                    model = str(spec.get("model") or "")
+            force_image_data_url = sampling_policy_for(model).force_image_data_url
+        except Exception:
+            force_image_data_url = False
+    return parts_to_openai_chat_content(
+        parts, force_image_data_url=force_image_data_url
+    )
 
 
 def parts_to_ark_responses_content(parts: list[ContentPart]) -> list[dict[str, Any]]:

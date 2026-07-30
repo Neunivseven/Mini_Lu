@@ -22,7 +22,7 @@ from agent.lg_runtime import (
     get_store,
     thread_config,
 )
-from agent.tools import default_tools
+from agent.tool_registry import get_tool_registry
 
 DEFAULT_AGENT_SYSTEM = (
     "你是 Mini_Lu（用户可改名；实际名字见下方【身份】），桌面 Agent 助手。"
@@ -84,11 +84,18 @@ DEFAULT_AGENT_SYSTEM = (
     "Skills：list_skills / load_skill（skills/*/SKILL.md）；"
     "语音转写 transcribe_audio；识图 describe_image；"
     "图像处理 process_image（多数环境未启用，按提示配置 models.yaml）。\n"
+    "跟进：用户说「把之前结果写入文档 / 不要再审查」时，从对话历史取助手已有正文，"
+    "用 write_file 或 edit_file 落盘；禁止重新扫描项目或再开审查计划。\n"
     "相对时间→delay_seconds；绝对时间→remind_at。不要编造工具结果。"
 )
 
 
 def build_chat_model(config: LLMConfig | None = None) -> ChatOpenAI:
+    """LangGraph / LangChain 适配器：把 active.chat 配置转成 ChatOpenAI。
+
+    无图、非 LangChain 场景请用 ``agent.ports.llm.get_chat_model_adapter()``
+    或 ``agent.providers.get_hub().chat``，勿把本函数当成唯一 LLM 入口。
+    """
     cfg = config or load_llm_config()
     # 优先用 Hub 当前 chat 的连接参数（支持豆包等非 llm 扁平配置）
     try:
@@ -98,7 +105,7 @@ def build_chat_model(config: LLMConfig | None = None) -> ChatOpenAI:
         chat = hub.chat
         if hasattr(chat, "langchain_kwargs"):
             kw = dict(chat.langchain_kwargs())
-            kw.setdefault("temperature", 0.3)
+            # 温度/采样由 provider 决定；Kimi K3 等为 None（省略，勿 setdefault 成 0.3）
             return ChatOpenAI(**kw)
     except Exception:
         pass
@@ -107,13 +114,19 @@ def build_chat_model(config: LLMConfig | None = None) -> ChatOpenAI:
             "未配置语言模型 API Key。请填写 config/models.local.yaml / "
             "llm.local.yaml，或设置对应环境变量（如 DEEPSEEK_API_KEY）。"
         )
+    from agent.providers.sampling import resolve_chat_temperature, resolve_reasoning_effort
+
+    temp = resolve_chat_temperature(cfg.model)
     kwargs: dict[str, Any] = {
         "model": cfg.model,
         "api_key": cfg.api_key,
         "base_url": cfg.base_url,
         "timeout": cfg.timeout_seconds,
-        "temperature": 0.3,
+        "temperature": temp,
     }
+    effort = resolve_reasoning_effort(cfg.model)
+    if effort:
+        kwargs["reasoning_effort"] = effort
     return ChatOpenAI(**kwargs)
 
 
@@ -150,9 +163,9 @@ def _make_prompt():
         except Exception:
             pass
         try:
-            from agent.skills_store import format_skills_inject_block
+            from agent.plugin import get_plugin_manager
 
-            skills_block = format_skills_inject_block()
+            skills_block = get_plugin_manager().collect_system_prompt()
             if skills_block:
                 parts.append(skills_block)
         except Exception:
@@ -187,19 +200,13 @@ def _make_prompt():
 
 
 def _collect_tools(*, tools: list | None = None, exclude: set[str] | None = None) -> list:
+    """统一经 ToolRegistry 收集；传入 tools 时视为完整覆盖列表。"""
     if tools is not None:
         tool_list = list(tools)
-    else:
-        tool_list = list(default_tools())
-        try:
-            from agent.mcp_client import get_mcp_tools
-
-            tool_list.extend(get_mcp_tools())
-        except Exception:
-            pass
-    if exclude:
-        tool_list = [t for t in tool_list if getattr(t, "name", "") not in exclude]
-    return tool_list
+        if exclude:
+            tool_list = [t for t in tool_list if getattr(t, "name", "") not in exclude]
+        return tool_list
+    return get_tool_registry().all_tools(exclude=exclude)
 
 
 def _resolve_prompt_fn(system_prompt: str | None = None):
@@ -407,13 +414,11 @@ class PetAgent:
 
     def ask(self, user_text: str, *, memory_user_text: str | None = None, on_event=None, user_content=None) -> str:
         """
-        user_text: 文本摘要（历史/pending）
+        user_text: 发给模型的完整文本（可含附件抽取）
         user_content: 可选多模态 content（str 或 parts 列表）；缺省用 user_text
-        memory_user_text: 兼容旧参数（已不再写入自研记忆库）。
+        memory_user_text: 用户原始短句；优先用作 Plan/ReAct 路由依据
         on_event: 可选回调 dict(kind=thinking|token|tool|status|...)
         """
-        _ = memory_user_text
-
         from agent.agent_stream import run_agent_streaming
 
         reply = run_agent_streaming(
@@ -422,6 +427,7 @@ class PetAgent:
             agent=self._agent,
             config=self.config,
             on_event=on_event,
+            route_input=memory_user_text or None,
         )
 
         try:

@@ -102,7 +102,6 @@ class ModelsPanel(QWidget):
         scroll.setWidget(body)
         main_lay.addWidget(scroll, 1)
 
-        # —— 当前正在使用 ——
         self.active_card = QFrame()
         self.active_card.setObjectName("activeCard")
         ac = QVBoxLayout(self.active_card)
@@ -130,7 +129,6 @@ class ModelsPanel(QWidget):
         ac.addWidget(self.route_hint)
         lay.addWidget(self.active_card)
 
-        # —— 选择对话模型 ——
         sec1 = QLabel("① 选择对话模型")
         sec1.setObjectName("sec")
         lay.addWidget(sec1)
@@ -183,6 +181,11 @@ class ModelsPanel(QWidget):
         self.key_edit.setPlaceholderText("留空则不改；环境变量优先")
         dl.addWidget(self.key_edit)
 
+        dl.addWidget(QLabel("接口地址 base_url"))
+        self.url_edit = QLineEdit()
+        self.url_edit.setPlaceholderText("https://api.example.com/v1")
+        dl.addWidget(self.url_edit)
+
         dl.addWidget(QLabel("模型名 model"))
         self.model_edit = QLineEdit()
         dl.addWidget(self.model_edit)
@@ -198,7 +201,6 @@ class ModelsPanel(QWidget):
         dl.addLayout(row)
         lay.addWidget(detail)
 
-        # —— ASR / Vision ——
         sec2 = QLabel("② 旁路能力（文本模型看不了图/听不了音时用）")
         sec2.setObjectName("sec")
         lay.addWidget(sec2)
@@ -229,7 +231,6 @@ class ModelsPanel(QWidget):
         sl.addWidget(btn_side)
         lay.addWidget(side)
 
-        # —— 自定义 ——
         sec3 = QLabel("③ 自定义 OpenAI 兼容端点")
         sec3.setObjectName("sec")
         lay.addWidget(sec3)
@@ -550,13 +551,13 @@ class ModelsPanel(QWidget):
             self.meta.setText(
                 f"驱动 {s['driver']}  ·  "
                 f"Key {'已配置' if s['has_key'] else '未配置'}  ·  "
-                f"env={s['api_key_env'] or '—'}\n"
-                f"{s['base_url'] or ''}"
+                f"env={s['api_key_env'] or '—'}"
             )
             caps = set(s.get("capabilities") or [])
             self.chk_image.blockSignals(True)
             self.chk_image.setChecked("image" in caps)
             self.chk_image.blockSignals(False)
+            self.url_edit.setText(s.get("base_url") or "")
             self.model_edit.setText(s["model"])
             self.key_edit.clear()
         except Exception as e:
@@ -568,6 +569,7 @@ class ModelsPanel(QWidget):
             return
         try:
             model = self.model_edit.text().strip()
+            url = self.url_edit.text().strip()
             key = self.key_edit.text().strip()
             caps = ["text"]
             if self.chk_image.isChecked():
@@ -575,6 +577,8 @@ class ModelsPanel(QWidget):
             fields: dict = {"capabilities": caps}
             if model:
                 fields["model"] = model
+            if url:
+                fields["base_url"] = url
             if key:
                 fields["api_key"] = key
             set_provider_fields(pid, **fields)

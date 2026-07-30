@@ -1,4 +1,4 @@
-"""多会话对话：类似 Cursor New Agent，每会话独立 transcript。"""
+"""多会话对话：每会话独立 transcript。"""
 from __future__ import annotations
 
 import json

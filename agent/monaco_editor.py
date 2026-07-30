@@ -48,7 +48,7 @@ def lang_from_path(path: str | Path) -> str:
     return _EXT_LANG.get(p.suffix.lower(), "plaintext")
 
 
-# ── 语法高亮规则 ──
+# 语法高亮规则
 
 _PYTHON_KEYWORDS = (
     "False None True and as assert async await break class continue "

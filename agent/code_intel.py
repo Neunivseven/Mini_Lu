@@ -301,7 +301,7 @@ def format_symbols_brief(symbols: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-# ── 阶段 B：调用图 ─────────────────────────────────────────────
+# 调用图
 
 
 def workspace_root_or_error() -> Path | str:

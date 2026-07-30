@@ -65,6 +65,11 @@ providers:
     api_key: ""
     base_url: "https://api.moonshot.cn/v1"
     model: "moonshot-v1-8k"
+    # 若改用 kimi-k3 / kimi-k2.*，程序自动：
+    # - 不传 temperature/top_p/n/penalty（固定值，显式传入易 400）
+    # - reasoning_effort 默认 max（可在 local 覆盖为 low/high/max）
+    # - 图片仅 base64 / ms://，不用公网 URL
+    # reasoning_effort: max
 
   siliconflow:
     type: chat

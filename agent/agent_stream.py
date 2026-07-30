@@ -106,7 +106,7 @@ def _stream_once(
     try:
         stream_iter = graph.stream(payload, cfg, stream_mode=["messages", "updates"])
     except TypeError:
-        # 旧版或不支持 list stream_mode
+        # 不支持 list stream_mode 时回退
         stream_iter = (
             ("messages", item)
             for item in graph.stream(payload, cfg, stream_mode="messages")
@@ -273,8 +273,12 @@ def run_agent_streaming(
     session_id: str | None = None,
     on_event: OnEvent | None = None,
     user_content: Any = None,
+    route_input: str | None = None,
 ) -> str:
-    """优先 messages 流式；失败则回退 invoke。网络错误自动重试；可取消。"""
+    """优先 messages 流式；失败则回退 invoke。网络错误自动重试；可取消。
+
+    route_input: 可选短用户意图，供 Plan/ReAct 路由器使用（勿把附件正文塞进来）。
+    """
     graph = agent or build_agent(config)
     cfg = thread_config(session_id)
     _ensure_sane(graph, session_id, on_event)
@@ -286,6 +290,16 @@ def run_agent_streaming(
         messages=messages,
         user_content=user_content,
     )
+    # 路由器用短意图，避免附件长文一律进 Plan
+    try:
+        from agent.plan_execute_graph import routing_text
+
+        hint = (route_input or user_text or "").strip()
+        if hint:
+            payload["input"] = routing_text(hint)
+    except Exception:
+        if route_input:
+            payload["input"] = str(route_input)[:280]
 
     last_err: BaseException | None = None
     history_repaired = False
@@ -314,7 +328,7 @@ def run_agent_streaming(
                     return _invoke_once(graph, payload, cfg, on_event)
                 raise
         except RunCancelled:
-            # 取消时也可能留下半截 tool_calls，立刻补齐以免下次炸
+            # 取消时可能留下半截 tool_calls，补齐以免下次失败
             try:
                 from agent.lg_runtime import repair_dangling_tool_calls
 

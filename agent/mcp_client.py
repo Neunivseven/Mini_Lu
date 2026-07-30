@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from agent.llm_client import app_dir
+from agent.util_merge import deep_merge as _deep_merge
 
 logger = logging.getLogger(__name__)
 
@@ -39,16 +40,6 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         logger.warning("读 MCP 配置失败 %s: %s", path, e)
         return {}
     return data if isinstance(data, dict) else {}
-
-
-def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    out = copy.deepcopy(base)
-    for k, v in overlay.items():
-        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
-            out[k] = _deep_merge(out[k], v)
-        else:
-            out[k] = copy.deepcopy(v)
-    return out
 
 
 def load_mcp_config() -> dict[str, Any]:
@@ -164,27 +155,37 @@ async def _fetch_tools_async(
     per_server: dict[str, Any] = {}
     all_tools: list[Any] = []
 
-    # 逐 server 加载，单点失败不影响其它
-    for sid, conn in connections.items():
+    async def _one(sid: str, conn: dict[str, Any]) -> tuple[str, dict[str, Any], list[Any]]:
         try:
             client = MultiServerMCPClient({sid: conn})
             tools = await client.get_tools()
             names = []
+            loaded: list[Any] = []
             for t in tools:
                 if prefix_tools:
                     original = getattr(t, "name", "") or "tool"
-                    # 避免重复前缀
                     if not original.startswith(f"mcp_{sid}_"):
                         try:
                             t.name = f"mcp_{sid}_{original}"
                         except Exception:
                             pass
                 names.append(getattr(t, "name", "?"))
-                all_tools.append(t)
-            per_server[sid] = {"ok": True, "tools": names, "error": None}
+                loaded.append(t)
+            return sid, {"ok": True, "tools": names, "error": None}, loaded
         except Exception as e:
             logger.warning("MCP server [%s] 加载失败: %s", sid, e)
-            per_server[sid] = {"ok": False, "tools": [], "error": str(e)}
+            return sid, {"ok": False, "tools": [], "error": str(e)}, []
+
+    if not connections:
+        return [], {}
+
+    results = await asyncio.gather(
+        *(_one(sid, conn) for sid, conn in connections.items()),
+        return_exceptions=False,
+    )
+    for sid, info, tools in results:
+        per_server[sid] = info
+        all_tools.extend(tools)
 
     return all_tools, per_server
 

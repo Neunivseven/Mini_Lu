@@ -11,8 +11,8 @@ from agent.llm_client import app_dir
 @dataclass
 class RouterConfig:
     min_plan_signals: int = 2
-    long_text_chars: int = 120
-    use_llm_when_ambiguous: bool = True
+    long_text_chars: int = 200
+    use_llm_when_ambiguous: bool = False
 
 
 @dataclass
@@ -78,8 +78,8 @@ def load_agent_config(config_dir: Path | None = None) -> AgentRuntimeConfig:
         mode=mode,
         router=RouterConfig(
             min_plan_signals=max(1, int(r.get("min_plan_signals") or 2)),
-            long_text_chars=max(40, int(r.get("long_text_chars") or 120)),
-            use_llm_when_ambiguous=bool(r.get("use_llm_when_ambiguous", True)),
+            long_text_chars=max(40, int(r.get("long_text_chars") or 200)),
+            use_llm_when_ambiguous=bool(r.get("use_llm_when_ambiguous", False)),
         ),
         planner=PlannerConfig(
             max_plan_steps=max(2, int(p.get("max_plan_steps") or 8)),

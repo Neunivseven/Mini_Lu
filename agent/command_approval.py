@@ -147,12 +147,11 @@ def notify_command_result(request_id: str, payload: dict[str, Any]) -> None:
 
 
 def _emit_ui(kind: str, payload: dict[str, Any]) -> None:
+    """工作线程 → 主线程：统一走 emit_agent_ui（勿直连 EventBus）。"""
     try:
-        from agent.ui_bridge import get_bridge
+        from agent.ui_bridge import emit_agent_ui
 
-        br = get_bridge()
-        if br is not None:
-            br.agent_ui_event.emit({"kind": kind, **payload})
+        emit_agent_ui({"kind": kind, **payload})
     except Exception:
         pass
 

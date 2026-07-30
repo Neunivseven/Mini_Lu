@@ -98,7 +98,7 @@ def _load() -> dict[str, Any]:
         data = _empty_from_defaults()
     items = data.get("items")
     if not isinstance(items, list) or not items:
-        # 兼容旧格式纯字符串列表
+        # 纯字符串列表格式
         if isinstance(data.get("quotes"), list):
             items = [
                 {

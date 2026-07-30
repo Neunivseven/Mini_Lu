@@ -25,11 +25,15 @@ from agent.file_workspace import (
     numbered_slice,
     require_fresh_read,
     resolve_workspace_path,
-    save_backup,
 )
+from agent.write_policy import backup_before_write, requires_write_guard
 
 
 def _read_text(path: Path) -> str:
+    from agent.file_workspace import _is_secret_path
+
+    if _is_secret_path(path):
+        raise PermissionError(f"禁止读取敏感配置/密钥文件: {path.name}")
     ensure_text_size(path)
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -464,18 +468,21 @@ def edit_file(
             "或 replace_all=True。"
         )
 
-    backup = save_backup(p, content)
+    assert requires_write_guard("edit_file")
+    backup = backup_before_write(p, content)
     if replace_all:
         updated = content.replace(old_string, new_string)
     else:
         updated = content.replace(old_string, new_string, 1)
 
     from agent.edit_staging import is_review_enabled, stage_edit
+    from agent.read_cache import invalidate
 
     action = "删除" if new_string == "" else "替换"
     n = count if replace_all else 1
     summary = f"{action} {n} 处 @ {p.name}"
     if is_review_enabled():
+        invalidate()
         return stage_edit(p, content, updated, summary=summary)
 
     try:
@@ -484,6 +491,7 @@ def edit_file(
         return f"写入失败: {e}"
 
     mark_read(p, updated)
+    invalidate()
     bak = f"；备份 {backup.name}" if backup else ""
     return f"已{action} {p}（{n} 处）{bak}"
 
@@ -522,15 +530,18 @@ def write_file(file_path: str, content: str) -> str:
                 f"拒绝 write_file：{p} 已有 {old_lines} 行。"
                 f"请用 edit_file 做精确删改（new_string 为空即删除），以节省 token。"
             )
-        backup = save_backup(p, old)
+        assert requires_write_guard("write_file")
+        backup = backup_before_write(p, old)
     else:
         backup = None
 
     from agent.edit_staging import is_review_enabled, stage_edit
+    from agent.read_cache import invalidate
 
     action = "覆盖" if existed else "新建"
     summary = f"{action} {p.name}（{len(content)} 字符）"
     if is_review_enabled():
+        invalidate()
         return stage_edit(p, old, content, summary=summary)
 
     try:
@@ -540,6 +551,7 @@ def write_file(file_path: str, content: str) -> str:
         return f"写入失败: {e}"
 
     mark_read(p, content)
+    invalidate()
     bak = f"；备份 {backup.name}" if backup else ""
     return f"已{action} {p}（{len(content)} 字符）{bak}"
 
@@ -668,13 +680,14 @@ def grep_files(
 def list_workspaces() -> str:
     """查看当前代码工作区：活动项目与可读写根目录列表。"""
     from agent.file_workspace import format_workspace_status
+    from agent.read_cache import cached_call
 
-    return format_workspace_status()
+    return cached_call("read:list_workspaces", format_workspace_status)
 
 
 @tool
 def open_workspace_picker() -> str:
-    """打开工作区面板，让用户用系统对话框选择/切换项目文件夹（类似 VS Code 打开文件夹）。"""
+    """打开工作区面板，让用户用系统对话框选择/切换项目文件夹。"""
     from agent.ui_bridge import get_bridge
 
     bridge = get_bridge()
@@ -743,8 +756,7 @@ def coding_tools() -> list:
     ]
 
 
-# 在 file_tools 末尾不放 session tools；放到 tools.py 或 chat 侧
-# —— 下面 session tools 供 tools.py 导入 ——
+# session tools（供 tools.py 导入）
 
 
 @tool

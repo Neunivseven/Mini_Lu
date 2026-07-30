@@ -112,13 +112,17 @@ def _set_clipboard_text(text: str) -> None:
 @tool
 def get_clipboard() -> str:
     """读取当前系统剪贴板中的文本内容。"""
-    text = _get_clipboard_text()
-    if not text:
-        return "（剪贴板为空或无法读取）"
-    # 防止过长上下文
-    if len(text) > 4000:
-        return text[:4000] + "\n…(已截断)"
-    return text
+    from agent.read_cache import cached_call
+
+    def _load() -> str:
+        text = _get_clipboard_text()
+        if not text:
+            return "（剪贴板为空或无法读取）"
+        if len(text) > 4000:
+            return text[:4000] + "\n…(已截断)"
+        return text
+
+    return cached_call("read:get_clipboard", _load)
 
 
 @tool
@@ -128,7 +132,10 @@ def set_clipboard(text: str) -> str:
     Args:
         text: 要写入剪贴板的文本
     """
+    from agent.read_cache import invalidate
+
     _set_clipboard_text(text)
+    invalidate("read:get_clipboard")
     return f"已写入剪贴板（{len(text)} 字符）"
 
 
@@ -198,7 +205,8 @@ def run_command(
     """在当前工作区执行一条 shell 命令，返回 exit code + stdout/stderr。
     用于编译、测试、git 状态、pip/npm、运行脚本等闭环。
     默认 cwd=当前项目；Windows 默认 PowerShell。命令在无窗口子进程中跑完即返回。
-    注意：执行前会请求用户确认（已信任的命令可自动运行）。
+    注意：本工具为 write 类，执行前会请求用户确认（已信任的命令可自动运行）。
+    只读查询请用 list_* / read_* / grep 等，勿走本工具。
 
     Args:
         command: 要执行的命令（如 g++ main.cpp -o main、pytest、git status）
@@ -208,7 +216,9 @@ def run_command(
     """
     from agent.command_approval import notify_command_result, request_command_approval
     from agent.terminal_launcher import format_run_command, run_command as _run
+    from agent.write_policy import assert_write_tool
 
+    assert_write_tool("run_command")
     cmd = (command or "").strip()
     if not cmd:
         return "command 为空"
@@ -308,6 +318,7 @@ def append_note(content: str, summary: str = "") -> str:
         summary: 列表用短标题，可空
     """
     from agent.notes_store import add_note
+    from agent.read_cache import invalidate
 
     try:
         item = add_note(
@@ -317,6 +328,7 @@ def append_note(content: str, summary: str = "") -> str:
         )
     except Exception as e:
         return f"记事失败: {e}"
+    invalidate("read:list_")
     return f"已记事（无闹钟）[{item['id']}] {item['summary']}"
 
 
@@ -342,6 +354,7 @@ def add_alarm(
         summary: 短标题，可空
     """
     from agent.notes_store import add_note
+    from agent.read_cache import invalidate
 
     delay = int(delay_seconds) if delay_seconds else None
     at = (remind_at or "").strip() or None
@@ -365,6 +378,7 @@ def add_alarm(
         )
     except Exception as e:
         return f"闹钟失败: {e}"
+    invalidate("read:list_")
     if item.get("alarm_mode") == "repeat":
         return (
             f"已设长期闹钟 [{item['id']}] {item['summary']}；"
@@ -382,11 +396,16 @@ def list_notes(limit: int = 30, kind: str = "") -> str:
         kind: 空 / note / alarm
     """
     from agent.notes_store import format_brief_list, list_notes as _list
+    from agent.read_cache import cached_call
 
     k = (kind or "").strip().lower() or None
     if k not in (None, "note", "alarm"):
         k = None
-    return format_brief_list(_list(limit, kind=k))
+
+    def _load() -> str:
+        return format_brief_list(_list(limit, kind=k))
+
+    return cached_call(f"read:list_notes:{limit}:{k or ''}", _load)
 
 
 @tool
@@ -404,8 +423,10 @@ def get_note(note_id: str) -> str:
 def delete_note(note_id: str) -> str:
     """彻底删除一条记事或闹钟（不可恢复）。用户说删除/去掉某条时调用。"""
     from agent.notes_store import delete_note as _del
+    from agent.read_cache import invalidate
 
     if _del(note_id):
+        invalidate("read:list_")
         return f"已删除 [{note_id}]"
     return f"未找到 id={note_id}"
 
@@ -453,31 +474,37 @@ def add_reminder(
 def list_reminders(limit: int = 20) -> str:
     """列出仍开启的闹钟（含一次性待响与长期重复）。"""
     from agent.notes_store import list_notes as _list
+    from agent.read_cache import cached_call
 
-    pending = [
-        n
-        for n in _list(200, kind="alarm")
-        if n.get("alarm_enabled") and n.get("remind_at")
-    ][: max(1, min(int(limit), 100))]
-    if not pending:
-        return "（当前没有开启的闹钟）"
-    pending.sort(key=lambda x: x.get("remind_at") or "")
-    lines = []
-    for i in pending:
-        mode = "重复" if i.get("alarm_mode") == "repeat" else "一次"
-        extra = f"/{i.get('repeat')}" if i.get("alarm_mode") == "repeat" else ""
-        lines.append(
-            f"- [{i['id']}] ({mode}{extra}) {i['remind_at']}  {i.get('summary', '')}"
-        )
-    return "\n".join(lines)
+    def _load() -> str:
+        pending = [
+            n
+            for n in _list(200, kind="alarm")
+            if n.get("alarm_enabled") and n.get("remind_at")
+        ][: max(1, min(int(limit), 100))]
+        if not pending:
+            return "（当前没有开启的闹钟）"
+        pending.sort(key=lambda x: x.get("remind_at") or "")
+        lines = []
+        for i in pending:
+            mode = "重复" if i.get("alarm_mode") == "repeat" else "一次"
+            extra = f"/{i.get('repeat')}" if i.get("alarm_mode") == "repeat" else ""
+            lines.append(
+                f"- [{i['id']}] ({mode}{extra}) {i['remind_at']}  {i.get('summary', '')}"
+            )
+        return "\n".join(lines)
+
+    return cached_call(f"read:list_reminders:{limit}", _load)
 
 
 @tool
 def cancel_reminder(reminder_id: str) -> str:
     """关闭闹钟但保留正文为普通记事。若要连正文删掉请用 delete_note。"""
     from agent.notes_store import clear_reminder
+    from agent.read_cache import invalidate
 
     status = clear_reminder(reminder_id)
+    invalidate("read:list_")
     if status == "ok":
         return f"已关闭闹钟，正文保留为记事 [{reminder_id}]"
     if status == "none":
@@ -604,7 +631,7 @@ def open_memory_viewer() -> str:
     return "当前版本界面未接记忆面板"
 
 
-# —— Goal 跨轮驱动 ——
+# Goal 跨轮驱动
 
 
 @tool
@@ -688,7 +715,7 @@ def report_goal_blocked(reason: str) -> str:
     return f"已记录受阻（{g.get('blocked_attempts')} 次）：{g.get('last_block_reason')}"
 
 
-# —— 确定性工作流 ——
+# 确定性工作流
 
 
 @tool
@@ -1105,68 +1132,181 @@ def process_image(
         return f"图像处理失败: {e}"
 
 
-def default_tools() -> list:
-    from agent.file_tools import coding_tools, session_tools
+def register_builtin_tools(registry) -> None:
+    """按功能类别 + 读写访问性注册内置工具（供 ToolRegistry / CQRS 策略）。"""
+    from agent.file_tools import (
+        add_workspace,
+        codegraph_status,
+        edit_file,
+        find_callees,
+        find_callers,
+        glob_files,
+        grep_files,
+        index_codebase,
+        list_symbols,
+        list_workspaces,
+        metacoding_callers,
+        metacoding_doctor,
+        metacoding_implementers,
+        metacoding_index,
+        metacoding_neighbors,
+        metacoding_search,
+        metacoding_status,
+        open_workspace_picker,
+        read_file,
+        read_outline,
+        read_symbol,
+        session_tools,
+        set_workspace,
+        write_file,
+    )
 
-    return [
-        get_clipboard,
-        set_clipboard,
-        open_path,
-        open_app,
-        open_terminal,
-        run_command,
-        refresh_app_index,
-        list_apps,
-        list_directory,
-        *session_tools(),
-        *coding_tools(),
-        list_doc_parsers,
-        parse_document,
-        read_document,
-        inspect_document,
-        edit_word,
-        edit_excel,
-        edit_pdf,
-        run_document_code,
-        read_memory,
-        update_memory,
-        remember,
-        recall_memories,
-        forget_memory,
-        clear_memories,
-        reset_memories,
-        save_memory,
-        list_memories,
-        open_memory_viewer,
-        set_goal,
-        get_goal,
-        pause_goal,
-        resume_goal,
-        clear_goal,
-        mark_goal_done,
-        report_goal_blocked,
-        run_workflow,
-        list_workflows,
-        append_note,
-        add_alarm,
-        list_notes,
-        get_note,
-        delete_note,
-        read_notes,
-        open_notes_viewer,
-        add_reminder,
-        list_reminders,
-        cancel_reminder,
-        list_model_providers,
-        set_chat_provider,
-        register_openai_endpoint,
-        list_mcp,
-        reload_mcp,
-        list_skills,
-        load_skill,
-        transcribe_audio,
-        describe_image,
-        process_image,
-    ]
+    registry.register_many(
+        "system",
+        [get_clipboard, list_apps, list_directory],
+        access="read",
+    )
+    registry.register_many(
+        "system",
+        [
+            set_clipboard,
+            open_path,
+            open_app,
+            open_terminal,
+            run_command,
+            refresh_app_index,
+        ],
+        access="write",
+    )
+    # session：列表只读；新建/切换会改当前会话 → write
+    _sess = session_tools()
+    registry.register("session", _sess[0], access="read")  # list_chat_sessions
+    registry.register_many("session", _sess[1:], access="write")
+
+    registry.register_many(
+        "coding",
+        [
+            list_workspaces,
+            read_outline,
+            list_symbols,
+            read_symbol,
+            codegraph_status,
+            find_callers,
+            find_callees,
+            metacoding_doctor,
+            metacoding_status,
+            metacoding_search,
+            metacoding_callers,
+            metacoding_implementers,
+            metacoding_neighbors,
+            read_file,
+            glob_files,
+            grep_files,
+        ],
+        access="read",
+    )
+    registry.register_many(
+        "coding",
+        [
+            open_workspace_picker,
+            add_workspace,
+            set_workspace,
+            index_codebase,
+            metacoding_index,
+            edit_file,
+            write_file,
+        ],
+        access="write",
+    )
+    registry.register_many(
+        "docs",
+        [list_doc_parsers, parse_document, read_document, inspect_document],
+        access="read",
+    )
+    registry.register_many(
+        "docs",
+        [edit_word, edit_excel, edit_pdf, run_document_code],
+        access="write",
+    )
+    registry.register_many(
+        "memory",
+        [read_memory, recall_memories, list_memories, open_memory_viewer],
+        access="read",
+    )
+    registry.register_many(
+        "memory",
+        [
+            update_memory,
+            remember,
+            forget_memory,
+            clear_memories,
+            reset_memories,
+            save_memory,
+        ],
+        access="write",
+    )
+    registry.register_many(
+        "goal",
+        [get_goal, list_workflows],
+        access="read",
+    )
+    registry.register_many(
+        "goal",
+        [
+            set_goal,
+            pause_goal,
+            resume_goal,
+            clear_goal,
+            mark_goal_done,
+            report_goal_blocked,
+            run_workflow,
+        ],
+        access="write",
+    )
+    registry.register_many(
+        "notes",
+        [
+            list_notes,
+            get_note,
+            read_notes,
+            open_notes_viewer,
+            list_reminders,
+        ],
+        access="read",
+    )
+    registry.register_many(
+        "notes",
+        [
+            append_note,
+            add_alarm,
+            delete_note,
+            add_reminder,
+            cancel_reminder,
+        ],
+        access="write",
+    )
+    registry.register_many(
+        "models",
+        [list_model_providers, list_mcp, list_skills, load_skill],
+        access="read",
+    )
+    registry.register_many(
+        "models",
+        [set_chat_provider, register_openai_endpoint, reload_mcp],
+        access="write",
+    )
+    registry.register_many(
+        "media",
+        [transcribe_audio, describe_image],
+        access="read",
+    )
+    registry.register("media", process_image, access="write")
+
+
+def default_tools() -> list:
+    """返回当前注册表中的全部工具（含 MCP 提供器）。"""
+    from agent.tool_registry import get_tool_registry
+
+    return get_tool_registry().all_tools()
 
 

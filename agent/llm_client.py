@@ -1,8 +1,12 @@
 """
-语言模型客户端（兼容入口）。
+语言模型客户端（兼容垫片）。
 
-新架构见 agent/providers/：支持多 chat / asr / vision / image。
-本模块保留 LLMClient / load_llm_config / chat_text，供现有代码无痛使用。
+权威路由在 ``agent.providers``（``get_hub()`` / ``ModelHub``）。
+本模块仅提供：
+- ``LLMConfig``：当前 active.chat 的扁平视图（旧代码参数形状）
+- ``LLMClient`` / ``chat_text`` / ``load_llm_config``：薄封装，内部一律走 hub
+
+新代码请优先 ``from agent.providers import get_hub``，避免再叠一层配置语义。
 """
 from __future__ import annotations
 

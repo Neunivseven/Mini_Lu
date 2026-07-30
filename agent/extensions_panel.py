@@ -422,7 +422,7 @@ class ExtensionsPanel(QWidget):
         self.tabs.setTabsClosable(True)
         self.tabs.tabCloseRequested.connect(self._on_tab_close)
 
-        # —— 管理页：Skills | MCP ——
+        # 管理页：Skills | MCP
         manage = QWidget()
         manage_lay = QVBoxLayout(manage)
         manage_lay.setContentsMargins(0, 6, 0, 0)
@@ -519,7 +519,7 @@ class ExtensionsPanel(QWidget):
         except Exception:
             pass
 
-        # —— 教程页（默认不挂载；点「接入教程」再打开）——
+        # 教程页（默认不挂载；点「接入教程」再打开）
         self._guide_host = QWidget(self)
         self._guide_host.setVisible(False)
         gh = QVBoxLayout(self._guide_host)

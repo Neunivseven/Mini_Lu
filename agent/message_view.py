@@ -1,5 +1,5 @@
 """
-对话消息视图：预览可展开；正文与代码块分框展示（类 Markdown）。
+对话消息视图：预览可展开；正文与代码块分框展示。
 """
 from __future__ import annotations
 
@@ -388,7 +388,7 @@ class _MetaSection(QWidget):
         self.toggle_btn.setText(f"{prefix} {self._title} · {len(self._lines)}")
 
 
-# 兼容旧名
+# 别名
 class _TextBlock(_BodyText):
     def __init__(self, text: str, parent=None):
         super().__init__(text, parent, bold=True)
@@ -989,6 +989,10 @@ class TerminalBlock(QFrame):
         self.btn_allow.setObjectName("termAllow")
         self.btn_always = QPushButton("总是允许", self)
         self.btn_always.setObjectName("termAlways")
+        self.btn_always.setToolTip(
+            "仅信任本条完整命令（精确匹配）。\n"
+            "不会写入宽泛正则；过宽模式请勿手改 command_trust.local.yaml。"
+        )
         self.btn_deny = QPushButton("取消", self)
         self.btn_deny.setObjectName("termDeny")
         self.btn_allow.clicked.connect(lambda: self._decide("allow"))
