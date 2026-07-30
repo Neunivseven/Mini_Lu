@@ -40,7 +40,7 @@
 | 打包 | **PyInstaller**（开发时安装） | `build_linux.py` / `build_exe.py` → `dist/Mini_Lu/` |
 | 图像（素材管线） | **Pillow**；抠图等可用独立环境的 rembg | 皮肤帧处理脚本 |
 
-运行要求：Python **3.10+**（推荐 3.11 / 3.12），Windows 10/11 或 Ubuntu 22.04 / 24.04，需图形桌面会话。
+运行要求：Python **3.10–3.12**（推荐 **3.12**；conda 环境 `minilu` / Ubuntu 发行包按 3.12 验证），Windows 10/11 或 Ubuntu 22.04 / 24.04，需图形桌面会话。依赖下限与验证版本见 `requirements.txt` 注释。
 
 ---
 
