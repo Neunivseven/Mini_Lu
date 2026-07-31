@@ -1,0 +1,23 @@
+# 工作台编辑器补全词库扩展（改动后重启生效）
+#
+# include_paths：额外的头文件扫描根目录，用于 C/C++ 的 #include <…> 补全。
+#   会递归扫两层，收集 .h/.hpp/无后缀头文件的相对路径。
+#   系统默认已自动扫描：/usr/include（含 sys/）、/usr/local/include、
+#   /usr/include/eigen3、/usr/include/opencv4、/opt/ros/*/include。
+#   例：
+#   include_paths:
+#     - /usr/include/pcl-1.14
+#     - ~/mylib/include
+include_paths: []
+
+# words：按语言追加补全候选词（该语言将 1 字符即触发补全）。
+#   语言键：cmake / cpp / c / python / shell / javascript …
+#   例：
+#   words:
+#     cmake:
+#       - ament_target_dependencies
+#       - ament_export_dependencies
+#     cpp:
+#       - Eigen
+#       - MatrixXd
+words: {}

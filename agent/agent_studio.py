@@ -6,9 +6,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, QTimer, Qt, Signal
+from PySide6.QtCore import QFileSystemWatcher, QPoint, QRect, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QFont, QMouseEvent
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -472,6 +473,11 @@ class AgentStudio(QWidget):
         self.editor_title = QLabel("双击文件目录打开编辑", edits)
         self.editor_title.setObjectName("meta")
         action_row.addWidget(self.editor_title, 1)
+        self.chk_autosave = QCheckBox("自动保存", edits)
+        self.chk_autosave.setChecked(True)
+        self.chk_autosave.setToolTip("停止输入约 1 秒后自动写盘；Ctrl+S 立即保存")
+        self.chk_autosave.toggled.connect(self._on_autosave_toggled)
+        action_row.addWidget(self.chk_autosave)
         self.btn_editor_reload = QPushButton("重载", edits)
         self.btn_editor_reload.setObjectName("ghost")
         self.btn_editor_reload.clicked.connect(self._reload_editor_file)
@@ -487,7 +493,19 @@ class AgentStudio(QWidget):
 
         self.editor = MonacoEditor(self.code_stack)
         self.editor.content_changed.connect(self._on_editor_text_changed)
+        self.editor.save_requested.connect(self._save_editor_now)
         self.code_stack.addWidget(self.editor)  # index 0
+
+        # 自动保存 + 磁盘监视（与 AI 写盘协同）
+        self._autosave_enabled = True
+        self._disk_conflict = False
+        self._suppress_fs = False
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setSingleShot(True)
+        self._autosave_timer.setInterval(1200)
+        self._autosave_timer.timeout.connect(self._autosave_now)
+        self._fs_watcher = QFileSystemWatcher(self)
+        self._fs_watcher.fileChanged.connect(self._on_disk_file_changed)
 
         diff_page = QWidget(self.code_stack)
         dpl = QVBoxLayout(diff_page)
@@ -749,6 +767,7 @@ class AgentStudio(QWidget):
                 and hasattr(self, "models_embed")
                 and self.mid_tabs.indexOf(self.models_embed) >= 0
             ),
+            "editor_autosave": bool(getattr(self, "_autosave_enabled", True)),
         }
         if not self._zoomed:
             layout["window_size"] = [max(720, self.width()), max(480, self.height())]
@@ -803,6 +822,9 @@ class AgentStudio(QWidget):
                 self._show_models_tab(record=False)
             else:
                 self._close_models_tab(record=False)
+
+            if hasattr(self, "chk_autosave"):
+                self.chk_autosave.setChecked(bool(data.get("editor_autosave", True)))
         finally:
             self._layout_loading = False
 
@@ -1137,7 +1159,9 @@ class AgentStudio(QWidget):
         is_edit = self._code_panel_mode != "diff"
         self.code_stack.setCurrentIndex(0 if is_edit else 1)
         self.btn_editor_reload.setVisible(is_edit)
-        self.btn_editor_save.setVisible(is_edit)
+        self.chk_autosave.setVisible(is_edit)
+        # 自动保存开启时隐藏「保存并暂存」（自动直接写盘，无需手动）
+        self.btn_editor_save.setVisible(is_edit and not self._autosave_enabled)
 
     # 统一标签栏管理
 
@@ -1176,6 +1200,8 @@ class AgentStudio(QWidget):
         if 0 <= idx < len(self._tab_data):
             td = self._tab_data[idx]
             if td.get("type") == "file" and self._editor_dirty and self._editing_path == td.get("path"):
+                self._flush_autosave()
+            if td.get("type") == "file" and self._editor_dirty and self._editing_path == td.get("path"):
                 if not confirm(self, "关闭标签", f"{td['path'].name} 有未保存修改，确定关闭？", yes_text="关闭"):
                     return
             self._tab_data.pop(idx)
@@ -1191,6 +1217,7 @@ class AgentStudio(QWidget):
             return
         if idx < 0 or idx >= len(self._tab_data):
             return
+        self._flush_autosave()
         td = self._tab_data[idx]
         if td.get("type") == "file":
             p = td["path"]
@@ -1217,6 +1244,13 @@ class AgentStudio(QWidget):
         self._editing_path = p
         self._editing_loaded_text = text
         self._editor_dirty = False
+        self._disk_conflict = False
+        self.editor.set_file_path(str(p))
+        watched = self._fs_watcher.files()
+        if watched:
+            self._fs_watcher.removePaths(watched)
+        if p.exists():
+            self._fs_watcher.addPath(str(p))
         tag = "新文件" if not p.exists() else "编辑中"
         self.editor_title.setText(f"{p.name} · {tag}")
 
@@ -1294,7 +1328,11 @@ class AgentStudio(QWidget):
         if self._editing_path is None:
             return
         self._editor_dirty = True
+        if self._disk_conflict:
+            return  # 冲突提示保持显示
         self.editor_title.setText(f"{self._editing_path.name} · 有未保存改动")
+        if self._autosave_enabled:
+            self._autosave_timer.start()
 
     def _reload_editor_file(self) -> None:
         if self._editing_path is None:
@@ -1308,18 +1346,184 @@ class AgentStudio(QWidget):
         self.editor.get_content(self._save_editor_stage_cb)
 
     def _save_editor_stage_cb(self, after: str) -> None:
+        if not self._confirm_overwrite_if_conflict():
+            return
         before = self._editing_loaded_text
         if before == after:
             inform(self, "文件编辑器", "内容无变化。")
             return
         summary = f"工作台编辑保存 {self._editing_path.name}"
-        msg = stage_edit(str(self._editing_path), before, after, summary=summary)
+        self._suppress_fs = True
+        try:
+            msg = stage_edit(str(self._editing_path), before, after, summary=summary)
+        finally:
+            QTimer.singleShot(400, self._release_fs_suppress)
         self._editing_loaded_text = after
         self._editor_dirty = False
+        self._disk_conflict = False
         self.editor_title.setText(f"{self._editing_path.name} · 已暂存")
         self.reload_edits()
         self.file_tree.reload()
         inform(self, "文件编辑器", msg)
+
+    # —— 自动保存 / 磁盘同步 ——
+
+    def _on_autosave_toggled(self, on: bool) -> None:
+        self._autosave_enabled = bool(on)
+        if not hasattr(self, "code_stack"):
+            return  # 构造期间的初始 setChecked
+        self._sync_code_panel_mode_ui()
+        if on and getattr(self, "_editor_dirty", False):
+            self._autosave_timer.start()
+        self._schedule_save_layout()
+
+    def _release_fs_suppress(self) -> None:
+        self._suppress_fs = False
+        p = self._editing_path
+        if p is not None and p.exists() and str(p) not in self._fs_watcher.files():
+            self._fs_watcher.addPath(str(p))
+
+    def _flush_autosave(self) -> None:
+        """切标签/关窗前把未保存改动落盘（仅自动保存开且无冲突时）。"""
+        if (
+            self._autosave_enabled
+            and self._editor_dirty
+            and not self._disk_conflict
+            and self._editing_path is not None
+        ):
+            self._autosave_timer.stop()
+            self._autosave_now()
+
+    def _autosave_now(self) -> None:
+        if not self._autosave_enabled or self._disk_conflict:
+            return
+        if self._editing_path is None or not self._editor_dirty:
+            return
+        self.editor.get_content(self._autosave_write)
+
+    def _autosave_write(self, after: str) -> None:
+        p = self._editing_path
+        if p is None:
+            return
+        if after == self._editing_loaded_text:
+            self._editor_dirty = False
+            return
+        if p.exists():
+            try:
+                disk = p.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                disk = None
+            if disk is not None and disk != self._editing_loaded_text:
+                self._mark_disk_conflict()
+                return
+        self._write_editor_file(p, self._editing_loaded_text, after, "已自动保存")
+
+    def _save_editor_now(self) -> None:
+        """Ctrl+S / 手动立即保存（直接写盘，不进审阅队列）。"""
+        p = self._editing_path
+        if p is None:
+            return
+        self._autosave_timer.stop()
+        if not self._confirm_overwrite_if_conflict():
+            return
+
+        def _cb(after: str) -> None:
+            if after == self._editing_loaded_text:
+                self._editor_dirty = False
+                self.editor_title.setText(f"{p.name} · 无变化")
+                return
+            self._write_editor_file(p, self._editing_loaded_text, after, "已保存")
+
+        self.editor.get_content(_cb)
+
+    def _write_editor_file(self, p: Path, before: str, after: str, label: str) -> None:
+        self._suppress_fs = True
+        try:
+            from agent.file_workspace import mark_read, save_backup
+
+            if p.exists() and before:
+                try:
+                    save_backup(p, before)
+                except Exception:
+                    pass
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(after, encoding="utf-8", newline="\n")
+            mark_read(p, after)
+            from agent.read_cache import invalidate
+
+            invalidate()
+        except Exception as e:
+            self.editor_title.setText(f"{p.name} · 保存失败: {e}")
+            return
+        finally:
+            QTimer.singleShot(400, self._release_fs_suppress)
+        self._editing_loaded_text = after
+        self._editor_dirty = False
+        self._disk_conflict = False
+        from time import strftime
+
+        self.editor_title.setText(f"{p.name} · {label} {strftime('%H:%M:%S')}")
+
+    def _mark_disk_conflict(self) -> None:
+        self._disk_conflict = True
+        name = self._editing_path.name if self._editing_path else "文件"
+        self.editor_title.setText(
+            f"⚠ {name} 磁盘上已被 AI/外部修改，且你有未保存改动 —— "
+            "Ctrl+S 覆盖磁盘版，或点「重载」放弃本地改动"
+        )
+
+    def _confirm_overwrite_if_conflict(self) -> bool:
+        """磁盘被外部改过且缓冲区脏时，保存前确认覆盖。返回是否继续保存。"""
+        p = self._editing_path
+        if p is None:
+            return False
+        disk = None
+        if p.exists():
+            try:
+                disk = p.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                disk = None
+        if disk is None or disk == self._editing_loaded_text:
+            return True
+        ok = confirm(
+            self,
+            "保存冲突",
+            f"{p.name} 在磁盘上已被 AI/外部修改。\n"
+            "用你当前的编辑内容覆盖磁盘版本？\n"
+            "（想先看最新内容请选否，再点「重载」——本地改动会丢失）",
+            yes_text="覆盖",
+        )
+        if ok:
+            self._disk_conflict = False
+        return ok
+
+    def _on_disk_file_changed(self, path: str) -> None:
+        p = self._editing_path
+        if p is None or str(p) != str(path):
+            return
+        # 写盘方式可能导致 watch 失联，重新挂上
+        if p.exists() and str(p) not in self._fs_watcher.files():
+            self._fs_watcher.addPath(str(p))
+        if self._suppress_fs:
+            return
+        try:
+            disk = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+        except Exception:
+            return
+        if disk == self._editing_loaded_text:
+            return
+        if self._editor_dirty:
+            self._mark_disk_conflict()
+            return
+        # 缓冲区干净：自动同步磁盘（AI 修改），保持光标位置
+        state = self.editor.get_view_state()
+        self._editor_lock = True
+        self.editor.set_content(disk, lang_from_path(p))
+        self._editor_lock = False
+        self.editor.set_view_state(state)
+        self._editing_loaded_text = disk
+        self._editor_dirty = False
+        self.editor_title.setText(f"{p.name} · 已同步磁盘改动（AI/外部）")
 
     def _pick_workspace(self):
         from agent.file_workspace import get_active_root, set_active_workspace
@@ -1883,6 +2087,7 @@ class AgentStudio(QWidget):
 
     def collapse_to_chat(self):
         """收起：关闭大窗并通知主程序打开小输入条。"""
+        self._flush_autosave()
         self._save_layout_now()
         if self._zoomed:
             self.restore_from_zoom()
@@ -1892,6 +2097,7 @@ class AgentStudio(QWidget):
 
     def hide_panel(self):
         """× 关闭：不自动打开小输入条。"""
+        self._flush_autosave()
         self._save_layout_now()
         if self._zoomed:
             self.restore_from_zoom()

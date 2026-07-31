@@ -5,7 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_write_path
 
 # 出厂默认（勿被用户文件覆盖；重置时写回）
 DEFAULT_LAYOUT: dict[str, Any] = {
@@ -16,13 +16,12 @@ DEFAULT_LAYOUT: dict[str, Any] = {
     "files_collapsed": False,
     "window_size": [1280, 780],
     "models_tab_open": False,
+    "editor_autosave": True,
 }
 
 
 def prefs_path() -> Path:
-    d = app_dir() / "config"
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "studio_prefs.yaml"
+    return config_write_path("studio_prefs.yaml")
 
 
 def factory_layout() -> dict[str, Any]:
