@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-from agent.llm_client import app_dir
+from agent.llm_client import app_dir, config_write_path, data_dir, user_dir
 
 # path -> {content, mtime, ts}
 _read_state: dict[str, dict[str, Any]] = {}
@@ -89,9 +89,7 @@ def _under(child: Path, parent: Path) -> bool:
 
 
 def _workspace_config_path() -> Path:
-    p = app_dir() / "config" / "workspace.yaml"
-    p.parent.mkdir(parents=True, exist_ok=True)
-    return p
+    return config_write_path("workspace.yaml")
 
 
 def _normalize_root(raw: str | Path) -> Path | None:
@@ -146,6 +144,9 @@ def _save_workspace_config(data: dict[str, Any]) -> None:
 def load_workspace_roots() -> list[Path]:
     """允许读写的根目录：app_dir + 用户配置的 roots（UI / yaml）。"""
     roots: list[Path] = [app_dir().resolve()]
+    u = user_dir().resolve()
+    if u not in roots:
+        roots.append(u)  # 打包版：用户数据目录也可访问
     cfg = _load_workspace_config()
     for item in cfg.get("roots") or []:
         n = _normalize_root(item)
@@ -231,19 +232,21 @@ def clear_active_workspace() -> None:
 
 
 def backups_dir() -> Path:
-    p = app_dir() / "data" / "file_backups"
+    p = data_dir() / "file_backups"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def _is_app_config_path(path: Path) -> bool:
-    """是否位于桌宠安装目录下的 config/（含 API Key 等本地配置）。"""
-    try:
-        cfg_root = (app_dir() / "config").resolve()
-        path.resolve().relative_to(cfg_root)
-        return True
-    except ValueError:
-        return False
+    """是否位于桌宠的 config/ 下（安装目录或用户目录，含 API Key 等本地配置）。"""
+    resolved = path.resolve()
+    for root in (app_dir() / "config", user_dir() / "config"):
+        try:
+            resolved.relative_to(root.resolve())
+            return True
+        except ValueError:
+            continue
+    return False
 
 
 def _is_secret_path(path: Path) -> bool:

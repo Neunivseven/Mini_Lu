@@ -9,14 +9,14 @@ import json
 from datetime import datetime
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 MAX_GOAL_TURNS = 30
 BLOCKED_THRESHOLD = 3
 
 
 def _path():
-    p = app_dir() / "data" / "goal.json"
+    p = data_dir() / "goal.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

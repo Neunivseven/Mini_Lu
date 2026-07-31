@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_read_path
 
 
 @dataclass
@@ -45,8 +45,6 @@ class AgentRuntimeConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
-def _config_dir() -> Path:
-    return app_dir() / "config"
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -68,9 +66,12 @@ def _merge_section(base: dict[str, Any], overlay: dict[str, Any], key: str) -> d
 
 
 def load_agent_config(config_dir: Path | None = None) -> AgentRuntimeConfig:
-    root = config_dir or _config_dir()
-    base = _read_yaml(root / "agent.yaml")
-    local = _read_yaml(root / "agent.local.yaml")
+    if config_dir is not None:
+        base = _read_yaml(config_dir / "agent.yaml")
+        local = _read_yaml(config_dir / "agent.local.yaml")
+    else:
+        base = _read_yaml(config_read_path("agent.yaml"))
+        local = _read_yaml(config_read_path("agent.local.yaml"))
     data = {**base, **local} if local else dict(base)
     if local:
         for key in ("router", "planner", "executor", "memory"):

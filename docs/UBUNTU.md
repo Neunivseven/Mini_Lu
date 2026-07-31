@@ -142,6 +142,14 @@ cd dist/Mini_Lu
 目标机建议安装：`libgl1` `libegl1` `libxcb-cursor0` `fonts-noto-cjk` `xclip` `wl-clipboard`。  
 Wayland 窗口异常时可：`export QT_QPA_PLATFORM=xcb`。
 
+### 用户数据位置（打包版）
+
+打包版运行时，聊天记录、笔记、API 配置等用户数据保存在 `~/.local/share/Mini_Lu/`（`data/` 与 `config/`），Windows 为 `%APPDATA%\Mini_Lu`，可用环境变量 `MINI_LU_HOME` 覆盖。
+
+- **更新/重新打包/覆盖安装不会丢数据**：安装目录只放程序与默认配置模板。
+- 首次启动会自动把旧版安装目录里的 `data/` 与 `config/*.local.yaml` 迁移到用户目录。
+- 源码运行（`python main.py`）不受影响，仍使用项目目录下的 `data/` 与 `config/`。
+
 若用 **conda** 打包后启动报 `OPENSSL_3.3.0 not found` / 「请先安装 openai」：请用当前 `build_linux.py` 重打（会自动覆盖匹配的 `libcrypto`/`libssl`）；或对已有包手动：
 
 ```bash

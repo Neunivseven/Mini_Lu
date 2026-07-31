@@ -98,6 +98,8 @@ python main.py
 
 兼容旧版时可复制 `config/llm.local.yaml.example` → `llm.local.yaml`（会合并进对应 chat 条目）。
 
+> **打包版数据位置**：打包运行时，用户数据与本地配置保存在 `~/.local/share/Mini_Lu/`（Windows 为 `%APPDATA%\Mini_Lu`，可用 `MINI_LU_HOME` 覆盖），更新/覆盖安装不会丢失；首次启动自动迁移旧安装目录中的数据。源码运行仍使用项目目录。
+
 冒烟（可选）：
 
 ```bash

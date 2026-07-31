@@ -9,7 +9,7 @@ import atexit
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 # 跨会话长期记忆命名空间（Store）
 MEMORY_NAMESPACE: tuple[str, ...] = ("memories", "pet")
@@ -21,7 +21,7 @@ _store_cm = None
 
 
 def _data_dir() -> Path:
-    d = app_dir() / "data"
+    d = data_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
 

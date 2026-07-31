@@ -7,14 +7,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 MAX_MESSAGES = 300
 MAX_SESSIONS = 40
 
 
 def history_path() -> Path:
-    p = app_dir() / "data" / "chat_history.json"
+    p = data_dir() / "chat_history.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

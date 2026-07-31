@@ -10,11 +10,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 
 def _legacy_reminders_path() -> Path:
-    p = app_dir() / "data" / "reminders.json"
+    p = data_dir() / "reminders.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

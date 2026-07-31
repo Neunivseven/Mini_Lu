@@ -11,13 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 AgentInvoke = Callable[[str], str]
 
 
 def workflows_dir() -> Path:
-    p = app_dir() / "data" / "workflows"
+    p = data_dir() / "workflows"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.mkdir(parents=True, exist_ok=True)
     return p

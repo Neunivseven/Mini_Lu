@@ -12,14 +12,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 # 首次初始化时写入的内置正文（与 pet_agent.DEFAULT 对齐，可由 UI 再改）
 _BUILTIN_NAME = "内置默认"
 
 
 def data_path() -> Path:
-    p = app_dir() / "data" / "prompts.json"
+    p = data_dir() / "prompts.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

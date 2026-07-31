@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_read_path
 from agent.util_merge import deep_merge as _deep_merge
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,6 @@ _cache_status: dict[str, Any] = {
 }
 
 
-def config_dir() -> Path:
-    return app_dir() / "config"
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -43,8 +41,8 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_mcp_config() -> dict[str, Any]:
-    cfg = _read_yaml(config_dir() / "mcp.yaml")
-    local = _read_yaml(config_dir() / "mcp.local.yaml")
+    cfg = _read_yaml(config_read_path("mcp.yaml"))
+    local = _read_yaml(config_read_path("mcp.local.yaml"))
     if local:
         cfg = _deep_merge(cfg, local)
     cfg.setdefault("enabled", False)

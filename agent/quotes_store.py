@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_read_path, data_dir
 
 DEFAULT_QUOTES = [
     "发呆也是一种工作状态～",
@@ -24,11 +24,11 @@ DEFAULT_QUOTES = [
 
 
 def config_path() -> Path:
-    return app_dir() / "config" / "quotes.yaml"
+    return config_read_path("quotes.yaml")
 
 
 def data_path() -> Path:
-    p = app_dir() / "data" / "quotes.json"
+    p = data_dir() / "quotes.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

@@ -9,7 +9,8 @@ import yaml
 from agent.providers.config import (
     ModelsConfig,
     ProviderSpec,
-    app_dir,
+    config_read_path,
+    config_write_path,
     load_models_config,
 )
 from agent.providers.hub import reset_hub
@@ -17,16 +18,13 @@ from agent.providers.hub import reset_hub
 _CAPABILITIES = ("chat", "asr", "vision", "image")
 
 
-def config_dir() -> Path:
-    return app_dir() / "config"
-
-
 def models_local_path() -> Path:
-    return config_dir() / "models.local.yaml"
+    """写入位置（用户目录）；读取时另经 config_read_path 兼容旧安装目录。"""
+    return config_write_path("models.local.yaml")
 
 
 def _read_local() -> dict[str, Any]:
-    path = models_local_path()
+    path = config_read_path("models.local.yaml")
     if not path.exists():
         return {}
     try:

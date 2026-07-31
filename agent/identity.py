@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 # 固定产品名（安装包 / 窗口标题 / 关于信息）
 PRODUCT_NAME = "Mini_Lu"
@@ -16,7 +16,7 @@ _MAX_NAME_LEN = 24
 
 
 def data_path() -> Path:
-    p = app_dir() / "data" / "identity.json"
+    p = data_dir() / "identity.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

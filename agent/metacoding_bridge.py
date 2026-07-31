@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent.file_workspace import get_active_root
-from agent.llm_client import app_dir
+from agent.llm_client import app_dir, config_read_path
 
 _CONFIG_CACHE: dict[str, Any] | None = None
 
@@ -36,8 +36,8 @@ def load_config() -> dict[str, Any]:
     global _CONFIG_CACHE
     if _CONFIG_CACHE is not None:
         return _CONFIG_CACHE
-    base = _load_yaml(app_dir() / "config" / "metacoding.yaml")
-    local = _load_yaml(app_dir() / "config" / "metacoding.local.yaml")
+    base = _load_yaml(config_read_path("metacoding.yaml"))
+    local = _load_yaml(config_read_path("metacoding.local.yaml"))
     merged = {**base, **local}
     _CONFIG_CACHE = merged
     return merged

@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_read_path, user_dir
 
 SUPPORTED_PARSE = {
     ".pdf",
@@ -24,7 +24,7 @@ SUPPORTED_PARSE = {
 
 
 def _cfg_path() -> Path:
-    return app_dir() / "config" / "doc_parsers.yaml"
+    return config_read_path("doc_parsers.yaml")
 
 
 def load_parser_config() -> dict[str, Any]:
@@ -54,7 +54,7 @@ def output_root() -> Path:
     cfg = load_parser_config()
     p = Path(str(cfg.get("output_dir") or "data/doc_parse"))
     if not p.is_absolute():
-        p = app_dir() / p
+        p = user_dir() / p  # 输出属于用户数据，放用户目录
     p.mkdir(parents=True, exist_ok=True)
     return p
 

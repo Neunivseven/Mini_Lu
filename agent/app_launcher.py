@@ -19,7 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 
 # 仅作「查询词扩展」，不是安装路径
 _NICKNAMES: dict[str, list[str]] = {
@@ -96,7 +96,7 @@ class AppEntry:
 
 
 def _cache_path() -> Path:
-    p = app_dir() / "data" / "apps_index.json"
+    p = data_dir() / "apps_index.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 

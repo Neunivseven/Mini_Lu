@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import data_dir
 from agent.reminders import parse_when
 
 # kind: note=纯记事（不响铃） / alarm=闹钟（到点冒泡）
@@ -18,7 +18,7 @@ REPEAT_RULES = ("daily", "weekly", "weekdays", "monthly")
 
 
 def notes_path() -> Path:
-    p = app_dir() / "data" / "notes.json"
+    p = data_dir() / "notes.json"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -34,7 +34,7 @@ def ensure_reminders_migrated() -> None:
 
 
 def legacy_md_path() -> Path:
-    return app_dir() / "data" / "notes.md"
+    return data_dir() / "notes.md"
 
 
 def _empty() -> dict[str, Any]:

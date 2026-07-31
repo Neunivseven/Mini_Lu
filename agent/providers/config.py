@@ -26,6 +26,111 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+_USER_DIR: Path | None = None
+
+# 迁移旧安装目录时视为"用户所有"的配置文件（*.local.yaml 之外）
+_USER_OWNED_CONFIGS = (
+    "studio_prefs.yaml",
+    "ui_theme.yaml",
+    "workspace.yaml",
+)
+
+
+def user_dir() -> Path:
+    """用户数据根目录。
+
+    源码运行：等同 app_dir()（开发行为不变）。
+    打包运行：放系统用户目录，重新打包/覆盖安装不会丢 data 与本地配置。
+      Linux: $XDG_DATA_HOME/Mini_Lu（默认 ~/.local/share/Mini_Lu）
+      Windows: %APPDATA%/Mini_Lu
+      可用环境变量 MINI_LU_HOME 覆盖。
+    """
+    global _USER_DIR
+    if _USER_DIR is not None:
+        return _USER_DIR
+    if not getattr(sys, "frozen", False):
+        _USER_DIR = app_dir()
+        return _USER_DIR
+    env = os.environ.get("MINI_LU_HOME", "").strip()
+    if env:
+        base = Path(env).expanduser()
+    elif sys.platform.startswith("win"):
+        appdata = os.environ.get("APPDATA", "").strip() or "~/AppData/Roaming"
+        base = Path(appdata).expanduser() / "Mini_Lu"
+    else:
+        xdg = os.environ.get("XDG_DATA_HOME", "").strip() or "~/.local/share"
+        base = Path(xdg).expanduser() / "Mini_Lu"
+    _migrate_legacy_user_files(base)
+    _USER_DIR = base
+    return _USER_DIR
+
+
+def _migrate_legacy_user_files(base: Path) -> None:
+    """启动时补齐：把安装目录里的用户数据/本地配置/数据种子搬到用户目录。
+
+    只复制用户目录里"还不存在"的文件：
+    - 旧版安装目录里的运行数据（聊天记录、笔记等）→ 一次性迁入
+    - 随包发行的数据种子（如 prompts.json）→ 更新版本后也能补齐
+    - *.local.yaml 与偏好文件 → 旧安装的 API 配置无缝接续
+    """
+    import shutil
+
+    try:
+        (base / "config").mkdir(parents=True, exist_ok=True)
+        (base / "data").mkdir(parents=True, exist_ok=True)
+        install = app_dir()
+        src_data = install / "data"
+        if src_data.is_dir():
+            for item in src_data.iterdir():
+                dst = base / "data" / item.name
+                if dst.exists():
+                    continue
+                if item.is_dir():
+                    shutil.copytree(item, dst)
+                else:
+                    shutil.copy2(item, dst)
+        src_cfg = install / "config"
+        if src_cfg.is_dir():
+            for item in src_cfg.iterdir():
+                if not item.is_file():
+                    continue
+                owned = item.name.endswith(".local.yaml") or item.name in _USER_OWNED_CONFIGS
+                if not owned:
+                    continue
+                dst = base / "config" / item.name
+                if not dst.exists():
+                    shutil.copy2(item, dst)
+    except Exception:
+        pass
+
+
+def data_dir() -> Path:
+    """用户数据目录（data/）：聊天记录、笔记、提醒、长期记忆等。"""
+    p = user_dir() / "data"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def user_config_dir() -> Path:
+    """用户配置目录（config/）：*.local.yaml 与偏好文件的写入位置。"""
+    p = user_dir() / "config"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def config_read_path(name: str) -> Path:
+    """读配置：优先用户目录，回退安装目录（随包模板/默认值）。"""
+    u = user_dir() / "config" / name
+    if u.is_file():
+        return u
+    return app_dir() / "config" / name
+
+
+def config_write_path(name: str) -> Path:
+    """写配置：始终写用户目录，避免污染安装目录、更新时丢失。"""
+    return user_config_dir() / name
+
+
 def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
@@ -125,13 +230,15 @@ def _legacy_llm_as_models(flat: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_models_config(config_dir: Path | None = None) -> ModelsConfig:
-    root = app_dir()
-    cfg_dir = config_dir or (root / "config")
+    if config_dir is not None:
+        _p = lambda name: config_dir / name  # noqa: E731
+    else:
+        _p = config_read_path
 
-    models = _read_yaml(cfg_dir / "models.yaml")
-    models_local = _read_yaml(cfg_dir / "models.local.yaml")
-    llm = _read_yaml(cfg_dir / "llm.yaml")
-    llm_local = _read_yaml(cfg_dir / "llm.local.yaml")
+    models = _read_yaml(_p("models.yaml"))
+    models_local = _read_yaml(_p("models.local.yaml"))
+    llm = _read_yaml(_p("llm.yaml"))
+    llm_local = _read_yaml(_p("llm.local.yaml"))
 
     if not models:
         # 无 models.yaml：用 llm.yaml 构建

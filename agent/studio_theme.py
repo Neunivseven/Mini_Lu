@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_write_path
 
 
 @dataclass(frozen=True)
@@ -144,9 +144,7 @@ THEMES: dict[str, StudioTheme] = {
 
 
 def theme_path() -> Path:
-    d = app_dir() / "config"
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "ui_theme.yaml"
+    return config_write_path("ui_theme.yaml")
 
 
 def load_theme_id() -> str:

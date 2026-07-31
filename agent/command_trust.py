@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from agent.llm_client import app_dir
+from agent.llm_client import config_write_path
 
 # 视为过宽、不可用于自动放行的模式
 _BROAD_EXACT = {
@@ -29,7 +29,7 @@ _BROAD_EXACT = {
 
 
 def _path() -> Path:
-    return app_dir() / "config" / "command_trust.local.yaml"
+    return config_write_path("command_trust.local.yaml")
 
 
 def _read() -> dict[str, Any]:

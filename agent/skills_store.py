@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from agent.llm_client import app_dir
+from agent.llm_client import app_dir, config_read_path, config_write_path, user_dir
 
 _FRONT_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
 
@@ -40,8 +40,8 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_skills_config() -> dict[str, Any]:
-    cfg = _read_yaml(app_dir() / "config" / "skills.yaml")
-    local = _read_yaml(app_dir() / "config" / "skills.local.yaml")
+    cfg = _read_yaml(config_read_path("skills.yaml"))
+    local = _read_yaml(config_read_path("skills.local.yaml"))
     if local:
         # 浅合并列表类字段以 local 为准
         for k, v in local.items():
@@ -132,6 +132,10 @@ def skill_roots(cfg: dict[str, Any] | None = None) -> list[Path]:
         if not p.is_absolute():
             p = app_dir() / p
         roots.append(p)
+    # 打包版：用户自建 skill 存放在用户目录，也纳入发现范围
+    user_skills = user_dir() / "skills"
+    if user_skills not in roots:
+        roots.append(user_skills)
     return roots
 
 
@@ -351,7 +355,7 @@ always_inject: false
 
 
 def _local_skills_path() -> Path:
-    return app_dir() / "config" / "skills.local.yaml"
+    return config_write_path("skills.local.yaml")
 
 
 def save_skills_local_patch(patch: dict[str, Any]) -> Path:
@@ -393,7 +397,7 @@ def create_skill(
     safe = re.sub(r"[^\w\-]+", "-", raw, flags=re.UNICODE).strip("-").lower()
     if not safe:
         raise ValueError("请使用英文/数字/连字符作为 skill 目录名")
-    base = root or (app_dir() / "skills")
+    base = root or default_skills_dir()
     base.mkdir(parents=True, exist_ok=True)
     folder = base / safe
     skill_md = folder / "SKILL.md"
@@ -412,6 +416,7 @@ def create_skill(
 
 
 def default_skills_dir() -> Path:
-    p = app_dir() / "skills"
+    """用户自建 skill 的默认目录（打包版在用户目录，不随更新丢失）。"""
+    p = user_dir() / "skills"
     p.mkdir(parents=True, exist_ok=True)
     return p

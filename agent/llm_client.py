@@ -14,7 +14,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from agent.providers.config import app_dir, load_models_config
+from agent.providers.config import (
+    app_dir,
+    config_read_path,
+    config_write_path,
+    data_dir,
+    load_models_config,
+    user_dir,
+)
 from agent.providers.hub import get_hub, reset_hub
 
 
@@ -126,7 +133,7 @@ def reload_models() -> None:
     reset_hub()
 
 
-# 再导出，方便 from agent.llm_client import app_dir
+# 再导出，方便 from agent.llm_client import app_dir / data_dir 等
 __all__ = [
     "LLMConfig",
     "LLMClient",
@@ -134,5 +141,9 @@ __all__ = [
     "get_client",
     "chat_text",
     "app_dir",
+    "user_dir",
+    "data_dir",
+    "config_read_path",
+    "config_write_path",
     "reload_models",
 ]

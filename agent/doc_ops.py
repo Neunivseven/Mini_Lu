@@ -13,13 +13,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agent.llm_client import app_dir
+from agent.llm_client import app_dir, data_dir
 
 OUT_DIR_NAME = "docs_out"
 
 
 def docs_out_dir() -> Path:
-    p = app_dir() / "data" / OUT_DIR_NAME
+    p = data_dir() / OUT_DIR_NAME
     p.parent.mkdir(parents=True, exist_ok=True)
     p.mkdir(parents=True, exist_ok=True)
     return p
