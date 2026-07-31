@@ -124,6 +124,12 @@ class AgentRunner(QObject):
         if self._busy:
             return False
         self._agent = None
+        try:
+            from agent.memory_manager import reset as _reset_memory_manager
+
+            _reset_memory_manager()
+        except Exception:
+            pass
         return True
 
     def cancel(self) -> bool:
@@ -237,6 +243,12 @@ class AgentRunner(QObject):
         self._busy = False
         self.busy_changed.emit(False)
         self.reply_ready.emit(reply)
+        try:
+            from agent.memory_manager import on_turn_completed
+
+            on_turn_completed(self._last_memory or self._last_prompt, reply)
+        except Exception:
+            pass
 
     def _on_failed(self, err: str):
         self._busy = False

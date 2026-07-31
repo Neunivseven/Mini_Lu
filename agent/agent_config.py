@@ -26,6 +26,15 @@ class ExecutorConfig:
 
 
 @dataclass
+class MemoryConfig:
+    """langmem 后台记忆提取（默认关闭；开启有额外 LLM 调用成本）。"""
+
+    auto_extract: bool = False
+    min_interval_seconds: int = 120
+    max_chars: int = 4000
+
+
+@dataclass
 class AgentRuntimeConfig:
     """mode: auto | react | plan_execute"""
 
@@ -33,6 +42,7 @@ class AgentRuntimeConfig:
     router: RouterConfig = field(default_factory=RouterConfig)
     planner: PlannerConfig = field(default_factory=PlannerConfig)
     executor: ExecutorConfig = field(default_factory=ExecutorConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 def _config_dir() -> Path:
@@ -63,7 +73,7 @@ def load_agent_config(config_dir: Path | None = None) -> AgentRuntimeConfig:
     local = _read_yaml(root / "agent.local.yaml")
     data = {**base, **local} if local else dict(base)
     if local:
-        for key in ("router", "planner", "executor"):
+        for key in ("router", "planner", "executor", "memory"):
             data[key] = _merge_section(base, local, key)
 
     mode = str(data.get("mode") or "auto").strip().lower()
@@ -73,6 +83,7 @@ def load_agent_config(config_dir: Path | None = None) -> AgentRuntimeConfig:
     r = data.get("router") if isinstance(data.get("router"), dict) else {}
     p = data.get("planner") if isinstance(data.get("planner"), dict) else {}
     e = data.get("executor") if isinstance(data.get("executor"), dict) else {}
+    m = data.get("memory") if isinstance(data.get("memory"), dict) else {}
 
     return AgentRuntimeConfig(
         mode=mode,
@@ -86,5 +97,10 @@ def load_agent_config(config_dir: Path | None = None) -> AgentRuntimeConfig:
         ),
         executor=ExecutorConfig(
             recursion_limit=max(10, int(e.get("recursion_limit") or 40)),
+        ),
+        memory=MemoryConfig(
+            auto_extract=bool(m.get("auto_extract", False)),
+            min_interval_seconds=max(0, int(m.get("min_interval_seconds") or 120)),
+            max_chars=max(500, int(m.get("max_chars") or 4000)),
         ),
     )

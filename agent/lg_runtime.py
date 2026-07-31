@@ -237,19 +237,31 @@ def ensure_thread_sane(session_id: str | None = None, *, agent=None) -> int:
         return 0
 
 
+def _value_text(val: Any) -> str:
+    """取记忆条目的可读文本；兼容 remember（{"text"}）与 langmem（{"content"}）格式。"""
+    if not isinstance(val, dict):
+        return str(val or "")
+    t = val.get("text") or val.get("data")
+    if t:
+        return str(t)
+    c = val.get("content")
+    if isinstance(c, dict):
+        return str(c.get("content") or c.get("text") or c)
+    if c is not None:
+        return str(c)
+    return str(val)
+
+
 def list_long_term_items(limit: int = 50) -> list[dict[str, Any]]:
     """供 UI 展示 Store 中的长期记忆。"""
     store = get_store()
     items = store.search(MEMORY_NAMESPACE, limit=max(1, min(int(limit), 200)))
     out: list[dict[str, Any]] = []
     for it in items:
-        val = getattr(it, "value", None) or {}
-        if not isinstance(val, dict):
-            val = {"text": str(val)}
         out.append(
             {
                 "key": getattr(it, "key", ""),
-                "text": str(val.get("text") or val.get("data") or ""),
+                "text": _value_text(getattr(it, "value", None)),
                 "updated_at": str(getattr(it, "updated_at", "") or ""),
             }
         )

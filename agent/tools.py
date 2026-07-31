@@ -543,15 +543,14 @@ def recall_memories(
     Args:
         query: 可选关键词过滤；空则列出近期条目
     """
-    from agent.lg_runtime import MEMORY_NAMESPACE, get_store
+    from agent.lg_runtime import MEMORY_NAMESPACE, _value_text, get_store
 
     st = store if store is not None else get_store()
     items = st.search(MEMORY_NAMESPACE, query=(query or None), limit=40)
     q = (query or "").strip().lower()
     lines: list[str] = []
     for it in items:
-        val = getattr(it, "value", None) or {}
-        text = str(val.get("text") or val.get("data") or "").strip()
+        text = _value_text(getattr(it, "value", None)).strip()
         if not text:
             continue
         if q and q not in text.lower() and q not in str(getattr(it, "key", "")).lower():
@@ -1140,9 +1139,11 @@ def register_builtin_tools(registry) -> None:
         edit_file,
         find_callees,
         find_callers,
+        find_references,
         glob_files,
         grep_files,
         index_codebase,
+        insert_code,
         list_symbols,
         list_workspaces,
         metacoding_callers,
@@ -1156,6 +1157,9 @@ def register_builtin_tools(registry) -> None:
         read_file,
         read_outline,
         read_symbol,
+        rename_symbol,
+        repo_map,
+        replace_symbol,
         session_tools,
         set_workspace,
         write_file,
@@ -1202,6 +1206,8 @@ def register_builtin_tools(registry) -> None:
             read_file,
             glob_files,
             grep_files,
+            repo_map,
+            find_references,
         ],
         access="read",
     )
@@ -1214,6 +1220,9 @@ def register_builtin_tools(registry) -> None:
             index_codebase,
             metacoding_index,
             edit_file,
+            replace_symbol,
+            insert_code,
+            rename_symbol,
             write_file,
         ],
         access="write",

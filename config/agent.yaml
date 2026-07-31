@@ -21,3 +21,12 @@ planner:
 executor:
   # 嵌套 ReAct 单步最大递归
   recursion_limit: 40
+
+memory:
+  # 回合结束后用 LLM 自动提取/整合长期记忆（langmem）。
+  # 每次提取是一次额外模型调用，默认关闭；开启后受 min_interval_seconds 节流。
+  auto_extract: false
+  # 两次提取之间的最小间隔（秒）
+  min_interval_seconds: 120
+  # 单次送入提取的用户文本/回复各自的最大字符数
+  max_chars: 4000

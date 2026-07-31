@@ -221,6 +221,134 @@ def find_callees(function_name: str, file_path: str = "", limit: int = 40) -> st
 
 
 @tool
+def repo_map(max_files: int = 80) -> str:
+    """【项目全局视野首选】一页看清项目结构：每个源文件一行（相对路径 + 顶层类/函数）。
+    接手新任务、不熟悉项目、准备跨文件改动时先调用本工具，再精确定位；
+    避免反复 glob_files / grep_files 盲目探索。结果有短期缓存。
+
+    Args:
+        max_files: 最多展开的文件数（默认 80）
+    """
+    from agent.file_workspace import get_active_root
+    from agent.repo_map import build_repo_map
+
+    root = get_active_root()
+    if not root:
+        return "未设置工作区。请先用「📁」打开项目文件夹，或 set_workspace。"
+    try:
+        return build_repo_map(Path(root), max_files=max(10, min(int(max_files), 200)))
+    except Exception as e:
+        return f"生成项目地图失败: {e}"
+
+
+@tool
+def find_references(file_path: str, name: str, line: int = 0) -> str:
+    """【Python 精确引用】查找符号在项目内的全部引用（jedi 类型解析，结果精确）。
+    与 find_callers 的区别：本工具做语义解析、不会混淆同名符号，但仅支持 Python；
+    其它语言用 find_callers（近似）或 grep_files。
+
+    Args:
+        file_path: 符号定义（或出现）所在的 .py 文件
+        name: 符号名（函数/类/变量/方法）
+        line: 可选，符号所在行号；文件里有多个同名时用于消歧
+    """
+    name = (name or "").strip()
+    if not name:
+        return "name 为空"
+    try:
+        p = resolve_workspace_path(file_path, for_write=False)
+    except Exception as e:
+        return f"查找失败: {e}"
+    if not p.is_file():
+        return f"文件不存在或不是文件: {p}"
+    if p.suffix.lower() not in (".py", ".pyw"):
+        return "仅支持 Python；其它语言请用 find_callers 或 grep_files。"
+    try:
+        text = _read_text(p)
+    except Exception as e:
+        return f"读取失败: {e}"
+
+    from agent.file_workspace import get_active_root
+    from agent.py_semantics import find_references as _refs
+
+    root = Path(get_active_root() or p.parent)
+    result = _refs(p, text, root, name, line=int(line) or 0)
+    if isinstance(result, str):
+        return result
+    if not result:
+        return f"项目内未找到 {name!r} 的引用。"
+    rows = []
+    for r in result:
+        mark = "def" if r["is_definition"] else "ref"
+        rows.append(f"{r['file']}:{r['line']} [{mark}] {r['code']}")
+    return f"{name!r} 共 {len(result)} 处（jedi 精确）：\n" + "\n".join(rows)
+
+
+@tool
+def rename_symbol(file_path: str, name: str, new_name: str, line: int = 0) -> str:
+    """【Python 跨文件重命名】把符号定义及项目内全部引用一起改名（jedi 语义级）。
+    比逐文件 edit_file 替换可靠：不会误改同名字符串/注释里的巧合匹配。
+    改动会进入审阅流程逐文件确认。其它语言请用 grep_files + edit_file。
+
+    Args:
+        file_path: 符号所在 .py 文件
+        name: 现名
+        new_name: 新名（合法标识符）
+        line: 可选，符号所在行号（同名多处时消歧）
+    """
+    name = (name or "").strip()
+    new_name = (new_name or "").strip()
+    if not name or not new_name:
+        return "name / new_name 为空"
+    if name == new_name:
+        return "新旧名字相同"
+    try:
+        p = resolve_workspace_path(file_path, for_write=True)
+    except Exception as e:
+        return f"重命名失败: {e}"
+    if not p.is_file():
+        return f"文件不存在或不是文件: {p}"
+    if p.suffix.lower() not in (".py", ".pyw"):
+        return "仅支持 Python；其它语言请用 grep_files + edit_file。"
+    try:
+        text = _read_text(p)
+    except Exception as e:
+        return f"读取失败: {e}"
+
+    from agent.file_workspace import get_active_root
+    from agent.py_semantics import rename as _rename
+
+    root = Path(get_active_root() or p.parent)
+    result = _rename(p, text, root, name, new_name, line=int(line) or 0)
+    if isinstance(result, str):
+        return result
+
+    files: dict[Path, str] = result["files"]
+    # 先整体校验可写性，避免改一半中止
+    for ap in files:
+        try:
+            resolve_workspace_path(str(ap), for_write=True)
+        except Exception as e:
+            return f"重命名中止（{ap} 不可写）: {e}"
+
+    msgs: list[str] = []
+    for ap, new_code in files.items():
+        try:
+            old = _read_text(ap)
+        except Exception as e:
+            msgs.append(f"{ap.name}: 读取失败 {e}")
+            continue
+        if old == new_code:
+            continue
+        msgs.append(
+            _commit_update(ap, old, new_code, f"重命名 {name}→{new_name} @ {ap.name}")
+        )
+    if not msgs:
+        return "没有实际改动。"
+    return f"重命名 {name!r} → {new_name!r}，涉及 {len(msgs)} 个文件：\n" + "\n".join(msgs)
+
+
+@tool
 def metacoding_doctor() -> str:
     """检查 MetaCoding 旁路是否可用（Bun + MetaCoding-main + bun install）。
     C/C++ 日常用 tree-sitter 工具；TS/Python 大仓可选本旁路。
@@ -475,15 +603,17 @@ def edit_file(
     else:
         updated = content.replace(old_string, new_string, 1)
 
+    from agent.edit_check import run_edit_checks
     from agent.edit_staging import is_review_enabled, stage_edit
     from agent.read_cache import invalidate
 
     action = "删除" if new_string == "" else "替换"
     n = count if replace_all else 1
     summary = f"{action} {n} 处 @ {p.name}"
+    check = run_edit_checks(p, updated)
     if is_review_enabled():
         invalidate()
-        return stage_edit(p, content, updated, summary=summary)
+        return stage_edit(p, content, updated, summary=summary) + check
 
     try:
         p.write_text(updated, encoding="utf-8", newline="\n")
@@ -493,7 +623,7 @@ def edit_file(
     mark_read(p, updated)
     invalidate()
     bak = f"；备份 {backup.name}" if backup else ""
-    return f"已{action} {p}（{n} 处）{bak}"
+    return f"已{action} {p}（{n} 处）{bak}{check}"
 
 
 @tool
@@ -535,14 +665,16 @@ def write_file(file_path: str, content: str) -> str:
     else:
         backup = None
 
+    from agent.edit_check import run_edit_checks
     from agent.edit_staging import is_review_enabled, stage_edit
     from agent.read_cache import invalidate
 
     action = "覆盖" if existed else "新建"
     summary = f"{action} {p.name}（{len(content)} 字符）"
+    check = run_edit_checks(p, content)
     if is_review_enabled():
         invalidate()
-        return stage_edit(p, old, content, summary=summary)
+        return stage_edit(p, old, content, summary=summary) + check
 
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -553,7 +685,187 @@ def write_file(file_path: str, content: str) -> str:
     mark_read(p, content)
     invalidate()
     bak = f"；备份 {backup.name}" if backup else ""
-    return f"已{action} {p}（{len(content)} 字符）{bak}"
+    return f"已{action} {p}（{len(content)} 字符）{bak}{check}"
+
+
+def _commit_update(p: Path, old: str, updated: str, summary: str) -> str:
+    """备份 → 暂存审阅或直接写盘 → 语法校验，返回给模型的结果消息。"""
+    from agent.edit_check import run_edit_checks
+    from agent.edit_staging import is_review_enabled, stage_edit
+    from agent.read_cache import invalidate
+
+    assert requires_write_guard("edit_symbol")
+    backup = backup_before_write(p, old)
+    check = run_edit_checks(p, updated)
+    if is_review_enabled():
+        invalidate()
+        return stage_edit(p, old, updated, summary=summary) + check
+
+    try:
+        p.write_text(updated, encoding="utf-8", newline="\n")
+    except Exception as e:
+        return f"写入失败: {e}"
+    mark_read(p, updated)
+    invalidate()
+    bak = f"；备份 {backup.name}" if backup else ""
+    return f"{summary}：已写入 {p}{bak}{check}"
+
+
+def _locate_symbol_strict(p: Path, name: str, kind: str):
+    """写操作用的符号定位：只接受精确命中，返回 (hit, 错误消息)。"""
+    from agent.code_intel import (
+        find_symbol,
+        format_symbols_brief,
+        is_available,
+        list_symbols as _ls,
+    )
+
+    if not is_available():
+        return None, "tree-sitter 不可用，请改用 edit_file 做字符串替换。"
+    hit = find_symbol(p, name, kind=kind or "")
+    hname = str((hit or {}).get("name") or "")
+    if not hit or (hname != name and not hname.endswith(f"::{name}")):
+        cands = _ls(p, kinds=kind or "", limit=40)
+        return None, (
+            f"未精确找到符号 {name!r}（写操作不做模糊匹配）。候选：\n"
+            f"{format_symbols_brief(cands)}"
+        )
+    sl = int(hit.get("start_line") or 0)
+    el = max(sl, int(hit.get("end_line") or sl))
+    if sl <= 0:
+        return None, f"符号 {name!r} 行号无效，请改用 edit_file。"
+    hit["start_line"], hit["end_line"] = sl, el
+    return hit, ""
+
+
+def _reindent_block(block: str, indent: str) -> str:
+    """新代码块首行无缩进而原位置有缩进时，整块补齐缩进。"""
+    if not indent:
+        return block
+    lines = block.splitlines()
+    first = next((ln for ln in lines if ln.strip()), "")
+    if first.startswith((" ", "\t")):
+        return block
+    return "\n".join((indent + ln) if ln.strip() else ln for ln in lines)
+
+
+@tool
+def replace_symbol(file_path: str, name: str, new_body: str, kind: str = "") -> str:
+    """【改整个函数/类首选】按符号名整体替换定义（从签名行到结束行）。
+    优点：不必在 old_string 里复述旧代码，直接写新定义，省 token 且不会匹配失败。
+    使用前先 read_symbol 确认符号及其行范围（替换范围与 read_symbol 显示的 L 范围一致；
+    Python 装饰器若不在该范围内则会保留）。new_body 传空串表示删除整个符号。
+
+    Args:
+        file_path: 目标文件
+        name: 符号名（函数/类/方法，如 solveRiccati、LQR::step）
+        new_body: 完整新定义（含 def/class 签名行）；缩进可从 0 列写起，会自动对齐
+        kind: 可选类型过滤 function/class/method…
+    """
+    name = (name or "").strip()
+    if not name:
+        return "name 为空"
+    new_body = new_body if new_body is not None else ""
+    if len(new_body) > MAX_WRITE_CHARS:
+        return f"new_body 过长（>{MAX_WRITE_CHARS} 字符），请拆分修改。"
+    try:
+        p = resolve_workspace_path(file_path, for_write=True)
+    except Exception as e:
+        return f"编辑失败: {e}"
+    if not p.exists() or not p.is_file():
+        return f"文件不存在或不是文件: {p}"
+    try:
+        text = _read_text(p)
+        require_fresh_read(p, text)
+    except Exception as e:
+        return f"编辑失败: {e}"
+
+    hit, err = _locate_symbol_strict(p, name, kind)
+    if not hit:
+        return err
+    sl, el = hit["start_line"], hit["end_line"]
+
+    lines = text.splitlines()
+    el = min(el, len(lines))
+    src_line = lines[sl - 1]
+    indent = src_line[: len(src_line) - len(src_line.lstrip())]
+
+    if new_body.strip():
+        block = _reindent_block(new_body.rstrip("\n"), indent)
+        new_lines = lines[: sl - 1] + block.splitlines() + lines[el:]
+        action = f"替换 {hit.get('type')} {name}（原 L{sl}-{el}）"
+    else:
+        new_lines = lines[: sl - 1] + lines[el:]
+        action = f"删除 {hit.get('type')} {name}（原 L{sl}-{el}）"
+
+    updated = "\n".join(new_lines)
+    if text.endswith("\n"):
+        updated += "\n"
+    if updated == text:
+        return "内容无变化"
+    return _commit_update(p, text, updated, f"{action} @ {p.name}")
+
+
+@tool
+def insert_code(
+    file_path: str,
+    anchor: str,
+    content: str,
+    position: str = "after",
+    kind: str = "",
+) -> str:
+    """以某个已有符号为锚点，在其定义之前/之后插入新代码块（新函数、新方法等）。
+    不必引用已有代码。插入块与锚点符号自动对齐缩进；
+    与相邻定义之间的空行请包含在 content 内（如 Python 顶层函数前后各留一空行）。
+
+    Args:
+        file_path: 目标文件
+        anchor: 锚点符号名（新代码插在它旁边）
+        content: 要插入的完整代码块
+        position: after=锚点定义结束行之后 / before=锚点起始行之前
+        kind: 锚点类型过滤 function/class/method…
+    """
+    anchor = (anchor or "").strip()
+    if not anchor:
+        return "anchor 为空"
+    if not (content or "").strip():
+        return "content 为空"
+    if len(content) > MAX_WRITE_CHARS:
+        return f"content 过长（>{MAX_WRITE_CHARS} 字符），请拆分。"
+    position = (position or "after").strip().lower()
+    if position not in ("before", "after"):
+        return "position 只能是 before / after"
+    try:
+        p = resolve_workspace_path(file_path, for_write=True)
+    except Exception as e:
+        return f"编辑失败: {e}"
+    if not p.exists() or not p.is_file():
+        return f"文件不存在或不是文件: {p}"
+    try:
+        text = _read_text(p)
+        require_fresh_read(p, text)
+    except Exception as e:
+        return f"编辑失败: {e}"
+
+    hit, err = _locate_symbol_strict(p, anchor, kind)
+    if not hit:
+        return err
+    sl, el = hit["start_line"], hit["end_line"]
+
+    lines = text.splitlines()
+    el = min(el, len(lines))
+    src_line = lines[sl - 1]
+    indent = src_line[: len(src_line) - len(src_line.lstrip())]
+    block = _reindent_block(content.rstrip("\n"), indent).splitlines()
+
+    at = (sl - 1) if position == "before" else el
+    new_lines = lines[:at] + block + lines[at:]
+    updated = "\n".join(new_lines)
+    if text.endswith("\n"):
+        updated += "\n"
+    where = "之前" if position == "before" else "之后"
+    summary = f"插入 {len(block)} 行 @ {p.name}（{hit.get('type')} {anchor} {where}）"
+    return _commit_update(p, text, updated, summary)
 
 
 @tool
@@ -737,6 +1049,9 @@ def coding_tools() -> list:
         read_outline,
         list_symbols,
         read_symbol,
+        repo_map,
+        find_references,
+        rename_symbol,
         index_codebase,
         codegraph_status,
         find_callers,
@@ -750,6 +1065,8 @@ def coding_tools() -> list:
         metacoding_neighbors,
         read_file,
         edit_file,
+        replace_symbol,
+        insert_code,
         write_file,
         glob_files,
         grep_files,
