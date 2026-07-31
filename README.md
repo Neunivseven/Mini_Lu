@@ -133,11 +133,36 @@ my_item/
 
 ---
 
-## 打包（摘要）
+## 源码打包与安装
 
-1. 在**目标操作系统**本机打包：Linux → `python build_linux.py`；Windows → `python build_exe.py` 或 `build_exe.bat`。
-2. 产物为文件夹 `dist/Mini_Lu/`（勿只拷单文件）。
-3. 打包前确认源码可 `python main.py`；含 Key 的 `models.local.yaml` 勿随意外传。
+在**目标操作系统**本机打包（打包前确认源码可 `python main.py` 正常运行）。
+
+### Linux（Ubuntu）
+
+```bash
+# 1. 运行打包脚本（首次需 pip install pyinstaller）
+python build_linux.py
+# 产物为文件夹 dist/Mini_Lu/（勿只拷单文件）
+
+# 2. 将图标与启动项安装到系统（注册应用菜单）
+cd dist/Mini_Lu
+./install_to_menu.sh
+
+# 3. 运行：在应用菜单搜索「Mini_Lu / 桌宠」启动；
+#    或直接执行 ./run_mini_lu.sh
+```
+
+`install_to_menu.sh` 会把图标装进 `~/.local/share/icons/hicolor/`、写入 `.desktop` 启动项并刷新桌面数据库；若菜单里暂时找不到，注销重登或按 `Alt+F2` 输入 `r` 回车（GNOME）刷新即可。移植到其他 Ubuntu 电脑时，复制整个 `Mini_Lu` 文件夹后再跑一次 `./install_to_menu.sh`。
+
+### Windows
+
+```bat
+python build_exe.py    :: 或 build_exe.bat
+```
+
+产物同为 `dist/Mini_Lu/`，双击其中的 `Mini_Lu.exe` 运行；如需改 exe 图标，参考上文 rcedit 说明。
+
+> 用户数据（聊天记录、API 配置等）保存在 `~/.local/share/Mini_Lu/`（Windows 为 `%APPDATA%\Mini_Lu`），重新打包/覆盖安装不会丢失。含 Key 的 `models.local.yaml` 勿随意外传。
 
 更完整的 Ubuntu / Windows 步骤与排错见 `docs/UBUNTU.md`；发版检查清单：
 
